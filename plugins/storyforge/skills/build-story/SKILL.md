@@ -22,7 +22,7 @@ You are the **orchestrator**. You run in the main session and delegate each phas
 The hooks read `.storyforge/phase`. Set it with `echo <phase> > .storyforge/phase` at the start of every phase. This matters for three reasons:
 - During `develop` and `fix`, the edit guard blocks test-file edits.
 - During `develop` and `fix`, it also blocks edits outside `scope.txt`.
-- The Stop gate runs the tests during `develop`, `fix`, `integrate`, `ui`, and `verify`.
+- The Stop gate runs the tests during `develop`, `fix`, `integrate`, `ui`, and `verify`. In `develop`, `fix`, `integrate`, and `verify` it also runs the configured `lint` and `typecheck`.
 
 ## Phases
 
@@ -36,10 +36,10 @@ The hooks read `.storyforge/phase`. Set it with `echo <phase> > .storyforge/phas
 | 6 | review | `reviewer` (×N models if configured) | `findings.md` § Review | Findings recorded |
 | 7 | security | `security-reviewer` | `findings.md` § Security | Findings recorded |
 | 8 | break | `breaker` | regression tests, `findings.md` § Break | Attacks run, failures captured as tests |
-| 9 | fix | `developer` (fix) | production code | No open CRITICAL, all tests pass |
+| 9 | fix | `developer` (fix) | production code | No open CRITICAL or HIGH, all tests pass |
 | 10 | integrate | `integration-tester` | integration tests, `findings.md` § Integration | Integration suite passes |
 | 11 | ui | `ui-tester` | `e2e/*.spec.ts`, `findings.md` § UI | E2E passes on all viewports; no serious a11y violations |
-| 12 | verify | you | `status.md` | Full suite, lint, typecheck, and e2e pass on real output |
+| 12 | verify | you | `status.md` § Definition of done | Full suite, lint, typecheck, and e2e pass on real output, and every acceptance criterion has evidence |
 | 13 | docs | `doc-writer` | `docs/features/<feature>.md` (+ architecture, data model, onboarding) | Doc written from the built code |
 | 14 | remember | `memory-keeper` (update) | `docs/memory/**`, `summary.md` | Memory index and touched files updated |
 | 15 | reflect | you, with the `reflect` skill (story mode) | `reflect.md` | Process improvements proposed, not applied |
@@ -72,17 +72,23 @@ The planner also writes `scope.txt`: one glob per line for the files and directo
 
 If `review.models` lists more than one model, run the review skill's multi-model mode: one `reviewer` per model in a single message, then lead judgment by you. Also use it for any story the plan flags as auth, payments, data, or concurrency, even if only one model is configured. In that case use `opus` and `sonnet`.
 
+### Severity
+
+- **CRITICAL:** wrong behavior, data loss, a security hole, or a weakened test. Must be fixed.
+- **HIGH:** a real defect that a user or caller can hit (a missed acceptance criterion, an unhandled failure path, broken validation or a broken business rule) that isn't CRITICAL. Must be fixed.
+- **INFO:** style, naming, and optional hardening. May be deferred, and the final report counts these as deferred.
+
 ### The fix loop (phase 9)
 
 The loop is what makes this autonomous, and its exit conditions are what make it safe.
 
-1. Collect every open CRITICAL finding, every failing test, critical or high UI issues from phase 11, and every NEEDS INPUT item the developer can resolve without a product decision.
+1. Collect every open CRITICAL and HIGH finding, every failing test, critical or high UI issues from phase 11, and every NEEDS INPUT item the developer can resolve without a product decision.
 2. Call `developer` in fix mode with `findings.md` and the failing test names. It must use the `investigate` skill: root cause first, then the fix.
 3. **Scope:** if the developer reports a needed file outside `scope.txt` and the deviation is justified, add its glob to `scope.txt` (or `touch .storyforge/allow-scope-edit` for one cycle) and record it in `plan.md` § Deviations.
 4. Re-run only what the fix could affect. Run review and security on the changed files, re-run the breaker's regression tests, and re-run the UI specs if a UI issue was fixed. Don't redo the whole pipeline.
 5. Increment `fix_cycles` in `status.md`.
 
-**Exit** when nothing CRITICAL is open and tests pass.
+**Exit** when nothing CRITICAL or HIGH is open and tests pass.
 **After 2 failed cycles on the same finding**, apply `principle-attack-the-premise`: write down the premise that both fixes assumed, and test that premise before trying a third fix.
 **Stop and ask the human** when any of these happens:
 - `fix_cycles` reaches `max_fix_cycles`.
@@ -96,9 +102,20 @@ When you stop, write the open items to `status.md` under `## Blocked`. Never let
 
 Run it only if `ui.enabled` is true **and** the plan or diff touches UI files (components, pages, templates, styles). Otherwise mark it `skipped: no UI change`. When it runs, `touch .storyforge/ui-ran` so the Stop gate includes e2e in verify. Before calling `ui-tester`, check that the dev server starts with `ui.start_command`. If it doesn't, that's a fix-loop item and not a UI finding.
 
-### Verify (phase 12)
+### Verify and definition of done (phase 12)
 
-Run `test`, `lint`, and `typecheck` from the config yourself, plus `e2e_test` if phase 11 ran. Read the exit codes and the real output. Apply `principle-prove-it-works`: a subagent saying "all tests pass" is not evidence. Paste the pass/fail counts into `status.md`.
+Run `test`, `lint`, and `typecheck` from the config yourself, plus `integration_test` if phase 10 ran and `e2e_test` if phase 11 ran. Read the exit codes and the real output. Apply `principle-prove-it-works`: a subagent saying "all tests pass" is not evidence. Paste the pass/fail counts into `status.md`.
+
+Then build the **definition-of-done matrix** in `status.md` under `## Definition of done`. One row for every numbered acceptance criterion in `plan.md`, plus one row for every business rule or validation the story text names:
+
+| # | Criterion or rule | Evidence (test `path::name`, or command and observed output) | Result |
+|---|-------------------|----------------------------------------------------------------|--------|
+
+- Evidence must be something you ran in this phase and read yourself. A test name counts only if that test ran and passed in the run above. For a criterion with no test, run the real flow (a command, request, or the UI) and record what you observed.
+- A criterion with no evidence, or with a failing result, is not done. There is no "assumed" or "covered elsewhere".
+- The story is done only when every row passes, `findings.md` has no open CRITICAL or HIGH, and all gate commands exit 0.
+
+**If verify fails** (a gate command exits non-zero, a row has no evidence or fails, or a CRITICAL or HIGH finding is open), don't stop and don't report success. Run `echo fix > .storyforge/phase`, add each failing row or command to `findings.md` as a HIGH finding, and return to the fix loop (phase 9). Then run verify again. Each pass through the loop counts against `max_fix_cycles`, and the same stop rules apply, so the loop ends either in a fully passing matrix or in `## Blocked` with the failing rows listed.
 
 ### Docs, remember, reflect (phases 13-15)
 
@@ -111,7 +128,7 @@ Run `test`, `lint`, and `typecheck` from the config yourself, plus `e2e_test` if
 1. `echo done > .storyforge/phase`.
 2. Commit following the `ship` skill's step 2 (bisectable commits). Include `docs/stories/<id>/`, `docs/memory/`, `docs/features/`, and any e2e snapshots.
 3. If `ship.mode` is `pr` or `pr-babysit`, continue with the `ship` skill from step 1, which syncs with the base branch and re-tests. Otherwise stop after committing.
-4. Report to the user in 12 lines or fewer: what was built, test counts, findings fixed vs. deferred, memory and docs updated, reflect proposals waiting for approval, the PR link if one was opened, and anything blocked.
+4. Report to the user in 12 lines or fewer: what was built, test counts, findings fixed vs. deferred (INFO only), criteria passed out of total, memory and docs updated, reflect proposals waiting for approval, the PR link if one was opened, and anything blocked.
 
 ## Rules
 

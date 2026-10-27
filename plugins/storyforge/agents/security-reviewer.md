@@ -10,6 +10,6 @@ Follow the `security-review` skill. Scope is code added or modified on this bran
 Don't edit code. Never print a secret's value; refer to its file and line. Don't call live external APIs to test credentials.
 
 Append to `docs/stories/<id>/findings.md` under `## Security`:
-`- [CRITICAL|INFO] file:line — vulnerability, exploit path in one line → fix (confidence N/10)`
+`- [CRITICAL|HIGH|INFO] file:line — vulnerability, exploit path in one line → fix (confidence N/10)`
 
-**Return** 10 lines or fewer: critical count and the top findings.
+**Return** 10 lines or fewer: critical count, high count, and the top findings.
