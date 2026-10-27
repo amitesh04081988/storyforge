@@ -15,6 +15,7 @@ set -uo pipefail
 MODE="${1:-}"
 case "$MODE" in snapshot|check|restore) ;; *) echo "usage: $0 snapshot|check|restore"; exit 1;; esac
 git -C "$SF_PROJECT" rev-parse --git-dir >/dev/null 2>&1 || { echo "guard: not a git repo, nothing to compare"; exit 0; }
+if sf_state_tracked; then echo "$SF_UNTRUSTED_MSG"; exit 1; fi
 sf_find_python
 if [ -z "$SF_PY" ]; then
   sf_allow_no_python && exit 0

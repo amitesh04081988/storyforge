@@ -15,7 +15,7 @@ Scripts named below (`story-check.sh`, `guard.sh`, `dod-check.sh`, `story-index.
 1. Read `storyforge.config.json`. If it's missing, run the `init-project` skill first, then return. In headless runs (`STORYFORGE_HEADLESS=1`) stop with status `needs-init`.
 2. **New story:** derive `<id>` as `YYYYMMDD-<short-kebab-slug>`. Run `story-check.sh <id>`; exit 3 means another developer has this story or slug on an `origin/story/*` branch. Show its output and stop until the user says to continue (headless: status `needs-approval`). Then write `docs/stories/<id>/story.md` with the story text verbatim and create branch `story/<id>` from `base_branch` (from the current HEAD when `STORYFORGE_QUEUE=1`). If the working tree is dirty, stop and ask.
    **Resume** (`--resume <id>`): read `docs/stories/<id>/status.md` and continue from the first phase not marked `done`, keeping the recorded cycle count.
-3. Set the phase lock and initialize status:
+3. If `git ls-files .storyforge` prints anything, stop: tracked run state is ignored by the hooks, so no gate would protect this run. Tell the user to run `git rm -r --cached .storyforge` and add `.storyforge/` to `.gitignore`. Otherwise set the phase lock and initialize status:
    ```bash
    mkdir -p .storyforge && echo "<id>" > .storyforge/story && echo "recall" > .storyforge/phase && echo 0 > .storyforge/stop-blocks && rm -rf .storyforge/ui-ran .storyforge/allow-test-edit .storyforge/allow-scope-edit .storyforge/baseline .storyforge/baseline.json
    ```
