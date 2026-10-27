@@ -7,6 +7,8 @@ It also works across a team: stories are claimed on git branches, a story index 
 - [Install](#install)
 - [Quick start](#quick-start)
 - [How a story runs](#how-a-story-runs)
+- [Light mode for small stories](#light-mode-for-small-stories)
+- [The guard: test and scope locks](#the-guard-test-and-scope-locks)
 - [Worked example: one story, start to finish](#worked-example-one-story-start-to-finish)
 - [The dependency matrix and impact analysis](#the-dependency-matrix-and-impact-analysis)
 - [Definition of done](#definition-of-done)
@@ -338,9 +340,69 @@ A story is done only when **all** of these hold:
 2. `findings.md` has no open CRITICAL or HIGH.
 3. `test`, `lint`, `typecheck`, plus `integration_test` and `e2e_test` when those phases ran, all exit 0. The orchestrator runs them itself; a subagent saying "all pass" isn't evidence.
 
+The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a numbered criterion in `plan.md` has no row, if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it):
+
+```
+$ bash scripts/dod-check.sh 20261027-orders-csv-export
+DOD FAIL: row 2 (401 signed-out): no evidence
+DOD FAIL: acceptance criterion 4 has no row in the matrix
+DOD FAIL: open finding: - [HIGH] src/a.ts:9 — missing header → add it
+DOD: story 20261027-orders-csv-export is NOT done
+```
+
 **If verify fails,** StoryForge doesn't stop and doesn't report success. It sets the phase back to `fix`, records each failing row or command as a HIGH finding, and re-enters the fix loop. It ends either with a fully passing matrix or in `## Blocked` with the failing rows listed, after at most `max_fix_cycles` passes.
 
-The **Stop gate** adds a second guard: while a story is in `develop`, `fix`, `integrate`, `ui` or `verify`, Claude can't finish its turn while tests, lint or typecheck fail (the UI phase checks tests and e2e). It gives up after `max_stop_blocks` attempts so it can never loop forever, and tells you what is still failing.
+The **Stop gate** adds a second guard: while a story is in `develop`, `fix`, `integrate`, `ui` or `verify`, Claude can't finish its turn while tests, lint or typecheck fail (the UI phase checks tests and e2e). In `develop` and `fix` it also fails on test or out-of-scope file changes (see [the guard](#the-guard-test-and-scope-locks)), and in `verify` it runs `dod-check.sh`. It gives up after `max_stop_blocks` attempts so it can never loop forever, and tells you what is still failing.
+
+---
+
+## Light mode for small stories
+
+Most stories don't need 17 phases. A one-line fix shouldn't pay for product review, break-it, docs and reflect. After the plan and impact are written, StoryForge picks a mode and records it as `mode: light` or `mode: full` in `status.md`, with a one-line reason.
+
+```
+/storyforge:build-story Fix: the CSV export shows 0.1 as 0.10000000000000001 --light
+/storyforge:build-story Add refunds to the billing flow --full
+```
+
+With no flag, `light_mode: "auto"` (the default) chooses light only when **all** of these hold: the plan changes 3 files or fewer, touches no integration, needs no approval (no auth, payments, data deletion or migration), touches no UI, and the story is a bug fix, small tweak or one small function. If in doubt it runs full. `"off"` always runs full.
+
+| | Light | Full |
+|---|-------|------|
+| Runs | recall, plan, impact (analyst only if dependents exist), tests, develop, **one** review pass, fix loop, verify, commit | all 17 phases |
+| Skips | product, break, integrate, UI, docs, memory update, reflect. Security runs only if the diff touches auth, sessions, tokens, crypto, payments, uploads or SQL | nothing |
+| **Never skipped** | failing tests first, guard checks, stop gate, review, **the definition-of-done matrix and `dod-check.sh`** | same |
+
+Light mode **escalates to full** automatically when the fix loop reaches 2 cycles, when review or security finds a CRITICAL, or when the work grows past 3 files or needs a scope deviation. The skipped break and security phases then run.
+
+---
+
+## The guard: test and scope locks
+
+During `develop` and `fix` two rules apply: **test files are locked** (code can't pass by changing its tests) and **edits must stay inside `scope.txt`**.
+
+The `edit-guard` hook enforces them for the Edit and Write tools. But a shell command (`sed -i`, a `>` redirect, a script) can change a file without going through those tools. `scripts/guard.sh` closes that gap by comparing files, so it catches every way a file can change:
+
+```bash
+bash scripts/guard.sh snapshot     # start of develop and of every fix cycle: hash all files, copy test files
+bash scripts/guard.sh check        # after the developer returns, and in the Stop gate
+bash scripts/guard.sh restore      # put test files back from the snapshot; never touches production code
+```
+
+Example, after a developer rewrote an assertion with `sed -i`, created a test with a redirect, and wrote a file outside the scope:
+
+```
+$ bash scripts/guard.sh check
+guard: locked files changed outside the allowed path
+TEST-LOCK  tests/a.test.ts was modified since the snapshot. Test files are locked; run guard.sh restore, then fix the production code.
+TEST-LOCK  tests/b.test.ts was added since the snapshot. ...
+SCOPE      config/x.json changed but is outside scope.txt. Revert it, or record the reason in plan.md under Deviations ...
+$ bash scripts/guard.sh restore
+restored tests/a.test.ts
+removed new test file tests/b.test.ts
+```
+
+A test-lock violation becomes a CRITICAL gate-integrity finding and the developer is sent back. Lock files such as `package-lock.json` are tolerated for the scope check. This is a check after the fact, not a block in the moment: a bad change can exist briefly, but it can't get through verify or the Stop gate.
 
 ---
 
@@ -421,6 +483,8 @@ They only see stories pushed to the shared remote, so developers on forks or wor
 | `require_plan_approval` | `true` | Stop for your approval after the plan |
 | `max_fix_cycles` | `4` | Fix-loop passes before it stops and asks you |
 | `max_stop_blocks` | `3` | Times the Stop gate may block before giving up |
+| `light_mode` | `auto` | `auto`, or `off` to always run all phases. `--light` and `--full` on the command override it |
+| `models` | memory-keeper, doc-writer, integration-tester, ui-tester on `sonnet` | Model per agent, overriding the agent's default. Agents not listed use their default (planner, impact-analyst, test-writer, developer, reviewer, security-reviewer and breaker inherit your session's model) |
 
 ---
 
@@ -434,6 +498,8 @@ All live in `plugins/storyforge/scripts/` in this repository. Once the plugin is
 | `run-story.sh` | Runs `build-story` headless, resumes, or works through a queue file | `bash scripts/run-story.sh --queue stories.txt` |
 | `story-check.sh` | Claim check and scope-overlap check against other developers' branches. Exit 3 means conflict | `bash scripts/story-check.sh <id> [scope.txt]` |
 | `story-index.sh` | Regenerates `docs/stories/INDEX.md` | `bash scripts/story-index.sh` |
+| `guard.sh` | Snapshot, check and restore for test and scope locks, however a file was changed | `bash scripts/guard.sh check` |
+| `dod-check.sh` | Checks a story's definition of done with code. Exit 1 means not done | `bash scripts/dod-check.sh <id>` |
 | `impact.sh` | Maps changed paths to areas and their dependents | `bash scripts/impact.sh --depth 2 src/billing/**` |
 | `dep-scan.sh` | Suggests dependency edges from import lines | `bash scripts/dep-scan.sh` |
 
@@ -446,12 +512,14 @@ These run without Claude choosing to, so they can't be talked around.
 | Hook | When | What it does |
 |------|------|--------------|
 | `session-start` | New chat | Injects the small memory index and any in-progress story, so a new chat has project context |
-| `edit-guard` | During `develop` and `fix` | **Test lock:** denies edits to test files, so code can't pass by changing its tests. **Scope lock:** denies edits outside `scope.txt` |
+| `edit-guard` | During `develop` and `fix` | **Test lock:** denies edits to test files, so code can't pass by changing its tests. **Scope lock:** denies edits outside `scope.txt`. Only sees the Edit and Write tools; `guard.sh` covers the rest |
 | `post-edit-format` | After an edit | Runs your formatter quietly on the edited file |
-| `stop-gate` | When Claude tries to finish, in develop, fix, integrate, ui, verify | Blocks while tests, lint, or typecheck fail. Capped by `max_stop_blocks` |
+| `stop-gate` | When Claude tries to finish, in develop, fix, integrate, ui, verify | Blocks while tests, lint or typecheck fail; in develop and fix, while `guard.sh check` fails; in verify, while `dod-check.sh` fails. Capped by `max_stop_blocks` |
 | `check-careful` | Before shell commands | Asks before destructive commands and denies a small set of catastrophic ones. A best-effort guard, not a security boundary |
 
-Overrides, for the rare justified case: `touch .storyforge/allow-test-edit` or `touch .storyforge/allow-scope-edit` lets one cycle through. A scope deviation must also be recorded in `plan.md` § Deviations.
+**The hooks fail closed.** They need a working Python 3 (`python3`, `python` or `py -3`; each one is actually run, because on Windows `python3` is often a Microsoft Store shortcut that exists but fails). With none, they block and say why instead of silently doing nothing, and the session-start hook warns you.
+
+Overrides, for the rare justified case: `touch .storyforge/allow-test-edit` or `touch .storyforge/allow-scope-edit` lets one cycle through (then take a new `guard.sh snapshot`). `touch .storyforge/allow-no-python` lets the hooks stand down when Python really is unavailable. A scope deviation must also be recorded in `plan.md` § Deviations.
 
 ---
 
@@ -460,6 +528,7 @@ Overrides, for the rare justified case: `touch .storyforge/allow-test-edit` or `
 | Mechanism | What it does |
 |-----------|--------------|
 | **Subagents** | Each phase runs in its own context. Reviewers can't edit code. |
+| **Model tiering** | Mostly mechanical agents (memory-keeper, doc-writer, integration-tester, ui-tester) default to `sonnet`; the judgment-heavy ones use your session's model. Change any of them with `models` in the config. |
 | **Product review** | Before planning: challenges the premise, finds existing code to reuse, picks a scope mode, and compares minimal, ideal and lateral approaches. `product_review`: `auto`, `always`, or `off`. |
 | **Multi-model review** | Set `review.models` to for example `["opus","sonnet"]`: one reviewer per model, merged with lead judgment. Used automatically for auth, payments, data and concurrency stories. |
 | **Test value bar** | Every new test must name the regression it catches and why existing coverage misses it. `/storyforge:test-audit` prunes low-value tests. |
@@ -568,6 +637,9 @@ Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [
 - **The loop has limits on purpose.** `max_fix_cycles` and `max_stop_blocks` stop it from looping forever. When they trigger, it asks you and lists what is open.
 - **Team features see only the shared remote.** Developers on forks or offline aren't visible. There is no sync with Jira, GitLab issues, or Linear.
 - **Lint and typecheck gates only work if the commands in the config are real.** If they're blank they're skipped silently.
+- **The guard is a check after the fact.** `guard.sh` finds a changed test or out-of-scope file when the developer returns or the Stop gate runs; it does not stop the write in the moment. It also can't see a change that is made and then undone before the next check.
+- **Passing tests are not proof of correct code.** The tests come from the same acceptance criteria the code is built from. If a criterion is wrong or missing, tests and code can agree and both be wrong. No mutation testing or coverage measurement is included. The plan-approval gate is where you catch this.
+- **Cost.** A full story runs many agents and costs several times a direct prompt. Light mode and cheaper models for mechanical agents reduce this; they don't make it cheaper than a plain prompt for a tiny change.
 - **`check-careful` is not a security boundary.** It's best-effort string matching.
 
 ---
@@ -583,7 +655,9 @@ Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [
 | Everything shows `UNMAPPED` | The Paths globs in the map don't match your layout. Edit the Paths column |
 | `story-check.sh` says `could not fetch origin` | No remote or no network. It checked local refs only |
 | A story is stuck | Open `docs/stories/<id>/status.md`: `## Blocked` lists exactly what needs you. Fix it, then `--resume <id>` |
-| Hooks do nothing on Windows | `python3` must be on the PATH for Git Bash; the hooks use it to read the config |
+| `No working Python 3 was found` from a hook | Install Python 3 or fix the PATH so `python3`, `python` or `py -3` runs in Git Bash. On Windows, turn off the Microsoft Store "python3" alias or put a real Python first. Until then the hooks block on purpose; `touch .storyforge/allow-no-python` lets them stand down |
+| `guard: no snapshot` | Run `bash scripts/guard.sh snapshot`; `build-story` does this at the start of develop and of every fix cycle |
+| `DOD FAIL: ...` | Each line names the row, criterion or finding that is missing. Fix it and run `dod-check.sh` again |
 
 ---
 
