@@ -1,0 +1,54 @@
+{
+  "base_branch": "main",
+  "test": "npm test",
+  "integration_test": "npm run test:integration",
+  "e2e_test": "npx playwright test",
+  "lint": "npm run lint",
+  "typecheck": "npm run typecheck",
+  "format": "",
+  "test_globs": [
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/*_test.go",
+    "tests/**",
+    "test/**",
+    "__tests__/**",
+    "src/test/**",
+    "e2e/**",
+    "**/*.e2e.*"
+  ],
+  "ui": {
+    "enabled": false,
+    "start_command": "npm run dev",
+    "base_url": "http://localhost:3000",
+    "viewports": [
+      "desktop",
+      "mobile"
+    ],
+    "visual_snapshots": true,
+    "accessibility": true
+  },
+  "docs": {
+    "level": "light"
+  },
+  "product_review": "auto",
+  "review": {
+    "models": [
+      "inherit"
+    ]
+  },
+  "scope_lock": true,
+  "reflect": {
+    "after_each_story": true,
+    "retro_every_n_stories": 10
+  },
+  "ship": {
+    "mode": "commit",
+    "auto_merge": false
+  },
+  "require_plan_approval": true,
+  "max_fix_cycles": 4,
+  "max_stop_blocks": 3
+}

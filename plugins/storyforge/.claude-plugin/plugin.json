@@ -1,0 +1,8 @@
+{
+  "name": "storyforge",
+  "version": "0.3.0",
+  "description": "Sets up new or existing projects (stack detection or recommendation, conventions skill, Playwright). Then, given a story, it plans, writes failing tests, implements, reviews, security-reviews, tries to break it, fixes by root cause, runs integration and UI tests, writes feature docs with UML diagrams, and records what it learned in docs/memory.",
+  "author": { "name": "YOUR_NAME" },
+  "license": "MIT",
+  "keywords": ["workflow", "tdd", "code-review", "security", "memory", "autonomous", "subagents"]
+}
