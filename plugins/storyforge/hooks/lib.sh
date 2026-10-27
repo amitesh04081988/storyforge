@@ -22,13 +22,20 @@ sf_find_python() {
   SF_PY_CHECKED=1; SF_PY=""
   local c cache="$SF_STATE/python"
   if [ -f "$cache" ]; then
-    c=$(cat "$cache" 2>/dev/null)
-    if [ -n "$c" ] && sf_py_ok "$c"; then SF_PY="$c"; return 0; fi
+    c=$(head -c 20 "$cache" 2>/dev/null | tr -d '\r\n')
+    # Allowlist: the cache is a file, possibly supplied by a repository, and its content is run as a command.
+    case "$c" in
+      python3|python|"py -3") if sf_py_ok "$c"; then SF_PY="$c"; return 0; fi;;
+    esac
   fi
   for c in python3 python "py -3"; do
     if sf_py_ok "$c"; then
       SF_PY="$c"
-      [ -d "$SF_STATE" ] && printf '%s' "$c" > "$cache" 2>/dev/null
+      # Write the cache only into a real local folder: never through a symlink, never into tracked state,
+      # so a repository cannot make this write land on another file.
+      if [ -d "$SF_STATE" ] && [ ! -L "$SF_STATE" ] && [ ! -L "$cache" ] && ! sf_state_tracked; then
+        printf '%s' "$c" > "$cache" 2>/dev/null
+      fi
       return 0
     fi
   done
@@ -41,7 +48,18 @@ sf_find_python() {
 SF_NO_PY_MSG='[storyforge] No working Python 3 was found (tried python3, python, py -3), so the test lock, scope lock and stop gate cannot run. They are blocking instead of silently skipping. Install Python 3 or fix the PATH. To continue without them, run: touch .storyforge/allow-no-python'
 sf_allow_no_python() { [ -f "$SF_STATE/allow-no-python" ]; }
 
-sf_phase() { cat "$SF_STATE/phase" 2>/dev/null || echo ""; }
+# .storyforge/ is local run state and is gitignored. If git tracks anything in it, it was supplied by the
+# repository (a clone, a merge, a hostile commit), not written by a run here. A repository could use that to
+# make the hooks run its own test command, so StoryForge does not act on it. The text is JSON-safe on purpose.
+SF_UNTRUSTED_MSG='[storyforge] .storyforge/ is tracked by git, so it came from the repository and not from a run on this machine. StoryForge ignores it, because a repository could use it to make the hooks run commands. Fix: git rm -r --cached .storyforge, and add .storyforge/ to .gitignore.'
+sf_state_tracked() { [ -n "$(git -C "$SF_PROJECT" ls-files -- .storyforge 2>/dev/null | head -1)" ]; }
+
+# The current phase, or "" when there is none or the state cannot be trusted (so every gate stands down).
+sf_phase() {
+  [ -f "$SF_STATE/phase" ] || { echo ""; return; }
+  if sf_state_tracked; then echo ""; return; fi
+  cat "$SF_STATE/phase" 2>/dev/null || echo ""
+}
 
 # sf_cfg <key> [default]  -> prints scalar config value (lists joined by newline)
 sf_cfg() {
