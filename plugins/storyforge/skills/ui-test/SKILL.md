@@ -39,5 +39,5 @@ After the specs pass, start the app and explore the new feature the way a QA tes
 ## Output
 
 Inside build-story, append to `findings.md` under `## UI`:
-`- [critical|high|medium|low] <category> — what happens → expected (spec: e2e/x.spec.ts::name | screenshot: path)`
-Use the taxonomy's severity levels. Also list the screens and criteria covered.
+`- [CRITICAL|HIGH|INFO] <category> — what happens → expected (spec: e2e/x.spec.ts::name | screenshot: path)`
+Rate each issue with the taxonomy's severity levels, then write it with the tag build-story reads: taxonomy **critical** → `CRITICAL`, **high** → `HIGH`, **medium** and **low** → `INFO`. The done check blocks on every open CRITICAL and HIGH, so an issue written with any other tag is not seen. Also list the screens and criteria covered.
