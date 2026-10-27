@@ -5,6 +5,7 @@ StoryForge is a Claude Code plugin that takes a **user story** and carries it to
 It also works across a team: stories are claimed on git branches, a story index shows who is doing what, and a dependency map tells every story what else it touches.
 
 - [Install](#install)
+- [Update an existing install](#update-an-existing-install)
 - [Quick start](#quick-start)
 - [How a story runs](#how-a-story-runs)
 - [Light mode for small stories](#light-mode-for-small-stories)
@@ -39,6 +40,43 @@ In Claude Code:
 You can also install from a local clone: `/plugin marketplace add /path/to/storyforge`. Update later from the same `/plugin` menu, or reinstall.
 
 **Requirements:** Claude Code, `git`, `bash` (Git Bash on Windows), and `python3` on the PATH (the hooks use it to read the config). Node.js for Playwright (UI stories) and for the transcript finder in `reflect full`. For the PR step you also need `gh` (GitHub) or `glab` (GitLab); without them StoryForge stops after committing.
+
+## Update an existing install
+
+Updating is two steps: refresh the marketplace (to learn that a new version exists), then update the plugin. A restart is needed to apply it.
+
+```bash
+claude plugin list                                  # which version is installed, and its scope
+claude plugin marketplace update storyforge         # pull the latest from the repository
+claude plugin update storyforge@storyforge          # install the newer version
+```
+
+Then **restart Claude Code** (or start a new session). Check that it took:
+
+```bash
+claude plugin list                                  # storyforge@storyforge should show the new version
+claude plugin details storyforge                    # components in the plugin and their projected token cost
+```
+
+The same steps are available inside Claude Code from the `/plugin` menu: update the marketplace, then update `storyforge`.
+
+**Things to know**
+- **Scope.** `claude plugin list` shows whether the plugin is installed for a `project` or for the `user`. Update it where it is installed; a project-scoped install has to be updated for each project that uses it.
+- **Updates are detected by version number.** If `claude plugin update` says it is already up to date but you expect a newer version, run `claude plugin marketplace update storyforge` first, and check that the version in `.claude-plugin/marketplace.json` on `main` is higher than the installed one.
+- **Stories in progress keep working.** Their state lives in your repository (`docs/stories/<id>/status.md`), not in the plugin. After updating, `/storyforge:build-story --resume <id>` continues from the first unfinished phase.
+
+**What to do in a project that is already set up.** No config changes are required: every new setting has a default, and existing files are never overwritten. Read the rows for every version newer than the one you are updating from:
+
+| Version | What changed | Do this |
+|-----------------|--------------|---------|
+| 0.4 | Definition-of-done matrix, HIGH severity, lint and typecheck in the Stop gate | Check that `lint` and `typecheck` in `storyforge.config.json` are real commands, or blank to skip |
+| 0.5 | Story index, claim and overlap checks, `status.md` gets `owner:` and `phase:` | Nothing. `docs/stories/INDEX.md` appears when the next story is committed. Set `claim.push_early` to `false` if you do not want the branch pushed after planning |
+| 0.6 | Dependency map and the impact phase | Run `/storyforge:impact-analysis map` once to create `docs/memory/DEPENDENCIES.md`. Without it, the first story builds it. Set `impact.enabled` to `false` to opt out |
+| 0.7 | Fail-closed hooks, guard, scripted done check, model tiering, light mode | Make sure `python3`, `python` or `py -3` runs in your shell (see [Troubleshooting](#troubleshooting)). Optionally add `models`, `light_mode` and `guard.ignore` to the config (defaults apply when absent) |
+
+To see the new keys next to your own, compare your `storyforge.config.json` with `plugins/storyforge/skills/init-project/templates/storyforge.config.json` in this repository, or run `/storyforge:init-project` again. Re-running it on a set-up project refreshes detection and docs and only adds to memory, never overwrites it.
+
+---
 
 ## Quick start
 
@@ -666,6 +704,6 @@ Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [
 
 ## Contributing
 
-Open a merge request against `main`. Describe the change, how you tested it, and bump the version in both `plugins/storyforge/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Keep skills and agents small and specific, with frontmatter (`name`, `description`) that says when to use them. Changes to hooks or scripts need extra care because they run commands on users' machines.
+Open a merge request against `main`. Describe the change, how you tested it, and bump the version in both `plugins/storyforge/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Bump it so installed copies see the change as an update. Keep skills and agents small and specific, with frontmatter (`name`, `description`) that says when to use them. Changes to hooks or scripts need extra care because they run commands on users' machines.
 
 StoryForge includes ideas and code adapted from gstack and pstack; see `NOTICE.md` and `licenses/`.
