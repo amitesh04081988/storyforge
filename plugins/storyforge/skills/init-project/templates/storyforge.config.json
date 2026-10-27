@@ -48,6 +48,9 @@
     "mode": "commit",
     "auto_merge": false
   },
+  "claim": {
+    "push_early": true
+  },
   "require_plan_approval": true,
   "max_fix_cycles": 4,
   "max_stop_blocks": 3
