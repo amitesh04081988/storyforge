@@ -1,7 +1,7 @@
 ---
 name: build-story
 description: "Run the full StoryForge pipeline for a user story: recall project memory, product review, plan, impact analysis against the dependency map, write failing tests, implement, code review (optionally multi-model), security review, adversarial 'break it' testing, fix loop, integration tests, Playwright UI tests, verification, feature docs with UML diagrams, memory update, reflection, commit, and optionally ship a PR and babysit CI. Use whenever the user gives a story, feature description, ticket, or says 'build this', 'implement this story', '/build-story', or asks to resume a story run with --resume <id>."
-argument-hint: "<story text | path/to/story.md> | --resume <story-id>"
+argument-hint: "<story text | path/to/story.md> [--light|--full] | --resume <story-id>"
 ---
 
 # Build Story
@@ -15,9 +15,9 @@ You are the **orchestrator**. You run in the main session and delegate each phas
    **Resume** (`--resume <id>`): read `docs/stories/<id>/status.md` and continue from the first phase not marked `done`. Use the cycle count recorded there.
 3. Set the phase lock and initialize status:
    ```bash
-   mkdir -p .storyforge && echo "<id>" > .storyforge/story && echo "recall" > .storyforge/phase && echo 0 > .storyforge/stop-blocks && rm -f .storyforge/ui-ran .storyforge/allow-*
+   mkdir -p .storyforge && echo "<id>" > .storyforge/story && echo "recall" > .storyforge/phase && echo 0 > .storyforge/stop-blocks && rm -rf .storyforge/ui-ran .storyforge/allow-test-edit .storyforge/allow-scope-edit .storyforge/baseline .storyforge/baseline.json
    ```
-   `status.md` starts with the header lines `owner: <git config user.name>`, `phase: recall`, and `fix_cycles: 0`, followed by a checklist of the phases below. Update it after every phase, and keep `phase:` equal to `.storyforge/phase`. It is what makes a run resumable, and it is what other developers see in `docs/stories/INDEX.md`.
+   `status.md` starts with the header lines `owner: <git config user.name>`, `phase: recall`, `mode: full`, and `fix_cycles: 0`, followed by a checklist of the phases below. Update it after every phase, and keep `phase:` equal to `.storyforge/phase`. It is what makes a run resumable, and it is what other developers see in `docs/stories/INDEX.md`.
 
 The hooks read `.storyforge/phase`. Set it with `echo <phase> > .storyforge/phase` at the start of every phase. This matters for three reasons:
 - During `develop` and `fix`, the edit guard blocks test-file edits.
@@ -53,7 +53,19 @@ Every agent that touches code reads `.claude/skills/project-conventions/SKILL.md
 
 > Story `20261024-csv-export`. Read `docs/stories/20261024-csv-export/{story,context,plan}.md`. Write tests per plan §Test plan. Test command: `npm test`. Return ≤10 lines: tests added, the failure message each produced, anything blocking.
 
+**Models.** Agents have a default model in their frontmatter, and `models.<agent>` in the config overrides it. When you call an agent, pass the config's `models.<agent>` as the `model` parameter if it is set; otherwise let the agent's default apply. By default the judgment-heavy agents (planner, impact-analyst, test-writer, developer, reviewer, security-reviewer, breaker) inherit your model, and the mostly mechanical ones (memory-keeper, doc-writer, integration-tester, ui-tester) run on `sonnet`.
+
 Run phases 6 and 7 in parallel; they don't depend on each other. Phase 8 runs after both, because the breaker reads their findings and attacks the gaps.
+
+### Light mode
+
+Most stories don't need all 17 phases. A one-line fix shouldn't pay for product review, break-it, docs and reflect. After the plan (and impact) is written, choose `mode` and record it in `status.md` as `mode: light` or `mode: full`, stating the reason in one line.
+
+- `--light` or `--full` on the command forces the choice. Otherwise `light_mode` in the config decides: `off` always runs full, `auto` (the default) picks light only when **all** of these hold: the plan changes 3 files or fewer; no integration is touched; § Needs approval is "none"; no UI is touched; there is no migration; the plan does not flag auth, payments, data, or concurrency; and the story is a bug fix, a small tweak, or one small function. If in doubt, run full.
+- **Light runs:** recall, plan, impact (only call `impact-analyst` when `impact.sh` shows affected areas; otherwise write a one-line `impact.md`), tests, develop, review (one model, one pass, even if `review.models` lists several), the fix loop, verify with the definition-of-done check, and commit and ship per the config.
+- **Light skips**, marking each `skipped: light mode`: product, break, integrate, ui, docs, remember (unless the story produced a decision or a lesson worth keeping), and reflect. Security review also runs when the diff touches auth, sessions, tokens, crypto, payments, uploads, or SQL and query building.
+- **Never skipped, in any mode:** failing tests first, the guard checks, the stop gate, review, and the definition-of-done matrix with `dod-check.sh`.
+- **Escalate to full** and run the skipped break and security phases when `fix_cycles` reaches 2, when review or security finds a CRITICAL, or when the work grows past 3 files or needs a scope deviation. Record `mode: full (escalated: <reason>)`.
 
 ### Product (phase 2)
 
@@ -79,6 +91,14 @@ The planner also writes `scope.txt`: one glob per line for the files and directo
 - **Overlap check:** run `story-check.sh <id> docs/stories/<id>/scope.txt`. Exit 3 means another open story on `origin/story/*` plans to change the same files. Show its output, `echo blocked > .storyforge/phase`, and stop. The user decides whether to coordinate with that owner, narrow the scope, or continue.
 - **Share the claim:** unless `claim.push_early` is `false` in the config, commit only `docs/stories/<id>/` (story, plan, scope, status) as `docs(story): claim <id>` and run `git push -u origin story/<id>`. Skip this when there is no `origin` remote. Pushing early is what lets other developers see that the story is taken.
 
+### Guard (phases 5 and 9)
+
+The edit guard only sees the Edit and Write tools. A shell command (`sed -i`, a redirect, a script) can change a test or an out-of-scope file without it. `guard.sh` closes that by comparing files, so it covers every way a file can change:
+1. At the start of `develop`, and at the start of every fix cycle, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh" snapshot`. If the variable is empty, find the script with `find ~/.claude/plugins -path '*storyforge/scripts/guard.sh'`.
+2. When the developer returns, run `guard.sh check`. A subagent finishing does not trigger the Stop gate, so you must run this yourself.
+3. On a **TEST-LOCK** violation, run `guard.sh restore` (it restores test files and never touches production code), add a CRITICAL gate-integrity finding to `findings.md`, and send the developer back. On a **SCOPE** violation, either revert the change or, if justified, record it in `plan.md` § Deviations, widen `scope.txt`, and snapshot again.
+4. After any approved edit to tests (an upheld TEST-DISPUTE), `touch .storyforge/allow-test-edit`, make the edit, remove the file, and snapshot again.
+
 ### Review (phase 6)
 
 If `review.models` lists more than one model, run the review skill's multi-model mode: one `reviewer` per model in a single message, then lead judgment by you. Also use it for any story the plan flags as auth, payments, data, or concurrency, even if only one model is configured. In that case use `opus` and `sonnet`.
@@ -94,10 +114,11 @@ If `review.models` lists more than one model, run the review skill's multi-model
 The loop is what makes this autonomous, and its exit conditions are what make it safe.
 
 1. Collect every open CRITICAL and HIGH finding, every failing test, critical or high UI issues from phase 11, and every NEEDS INPUT item the developer can resolve without a product decision.
-2. Call `developer` in fix mode with `findings.md` and the failing test names. It must use the `investigate` skill: root cause first, then the fix.
+2. Run `guard.sh snapshot` (see Guard above). Then call `developer` in fix mode with `findings.md` and the failing test names. It must use the `investigate` skill: root cause first, then the fix.
 3. **Scope:** if the developer reports a needed file outside `scope.txt` and the deviation is justified, add its glob to `scope.txt` (or `touch .storyforge/allow-scope-edit` for one cycle) and record it in `plan.md` § Deviations.
 4. Re-run only what the fix could affect. Run review and security on the changed files, re-run the breaker's regression tests, and re-run the UI specs if a UI issue was fixed. Don't redo the whole pipeline.
-5. Increment `fix_cycles` in `status.md`.
+5. Run `guard.sh check` and handle violations as described under Guard.
+6. Increment `fix_cycles` in `status.md`.
 
 **Exit** when nothing CRITICAL or HIGH is open and tests pass.
 **After 2 failed cycles on the same finding**, apply `principle-attack-the-premise`: write down the premise that both fixes assumed, and test that premise before trying a third fix.
@@ -125,6 +146,7 @@ Then build the **definition-of-done matrix** in `status.md` under `## Definition
 - Evidence must be something you ran in this phase and read yourself. A test name counts only if that test ran and passed in the run above. For a criterion with no test, run the real flow (a command, request, or the UI) and record what you observed.
 - A criterion with no evidence, or with a failing result, is not done. There is no "assumed" or "covered elsewhere".
 - The story is done only when every row passes, `findings.md` has no open CRITICAL or HIGH, and all gate commands exit 0.
+- **Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dod-check.sh" <id>`.** It checks the matrix with code: every row has evidence and a pass, every numbered criterion in `plan.md` has a row, every `check` or `change` area in `impact.md` is named, and no CRITICAL or HIGH finding is open (a finding counts as closed when `FIXED:` is on its line or the lines under it). Exit 1 means verify failed. The Stop gate runs the same check, so you cannot finish while it fails.
 
 **If verify fails** (a gate command exits non-zero, a row has no evidence or fails, or a CRITICAL or HIGH finding is open), don't stop and don't report success. Run `echo fix > .storyforge/phase`, add each failing row or command to `findings.md` as a HIGH finding, and return to the fix loop (phase 9). Then run verify again. Each pass through the loop counts against `max_fix_cycles`, and the same stop rules apply, so the loop ends either in a fully passing matrix or in `## Blocked` with the failing rows listed.
 

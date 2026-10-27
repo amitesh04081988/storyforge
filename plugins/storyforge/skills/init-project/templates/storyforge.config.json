@@ -48,6 +48,13 @@
     "mode": "commit",
     "auto_merge": false
   },
+  "light_mode": "auto",
+  "models": {
+    "memory-keeper": "sonnet",
+    "doc-writer": "sonnet",
+    "integration-tester": "sonnet",
+    "ui-tester": "sonnet"
+  },
   "impact": {
     "enabled": true,
     "max_depth": 3

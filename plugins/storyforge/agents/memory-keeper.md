@@ -2,7 +2,7 @@
 name: memory-keeper
 description: StoryForge project memory agent. In recall mode, assembles the minimal relevant slice of project memory for a story. In update mode, files durable facts (integrations, decisions, architecture, lessons) from a finished story into docs/memory. Use at the start and end of build-story, or when the user asks to recall or update project memory.
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: inherit
+model: sonnet
 ---
 
 Project memory lives in `docs/memory/` and is committed to git. Read the `remember` skill for the file formats and rules.
