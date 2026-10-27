@@ -31,16 +31,25 @@ while IFS=$'\t' read -r id crit ev res; do
   case "$(printf '%s' "$res" | tr '[:upper:]' '[:lower:]')" in pass*) ;; *) bad "row $id ($crit): result is '$res', not pass";; esac
 done < "$TMP/rows.tsv"
 
-# 3. Every numbered criterion in the plan has a row.
+# 3. Every criterion in the plan has a row. A criterion is a list item that starts with a number or a short
+#    label: "1.", "2)", "AC1:", "AC-2.", "R3)", also after a bullet, a checkbox, or bold. Ids are compared
+#    ignoring case, dashes, and asterisks, so "AC-1" in the plan matches "ac1" in the matrix.
 if [ -f "$PL" ]; then
   tr -d '\r' < "$PL" | awk '
     function startsec(l) { return l ~ /([Aa]cceptance [Cc]riteria|[Ii]mpact-driven)/ && (l ~ /^#/ || l ~ /^[0-9]+\.[ \t]+\*\*/ || l ~ /^\*\*/) }
+    function itemid(l,   t, id) {
+      t = l
+      sub(/^[ \t]*([-*+][ \t]+)?(\[[ xX]\][ \t]+)?\**/, "", t)
+      if (match(t, /^[0-9]+\**[.)][ \t]/)) { id = t; sub(/\**[.)].*$/, "", id); return id }
+      if (match(t, /^[A-Za-z][A-Za-z]?[A-Za-z]?-?[0-9]+\**[.):]/)) { id = t; sub(/\**[.):].*$/, "", id); gsub(/-/, "", id); return toupper(id) }
+      return ""
+    }
     startsec($0) { on = 1; next }
     on && (/^#/ || /^[0-9]+\.[ \t]+\*\*/) { on = 0 }
-    on && match($0, /^[ \t]*[0-9]+[.)][ \t]/) { n = $0; sub(/^[ \t]*/, "", n); sub(/[.)].*$/, "", n); print n }
-  ' | sort -un > "$TMP/need.txt"
-  [ -s "$TMP/need.txt" ] || bad "no numbered acceptance criteria found in $PL"
-  cut -f1 "$TMP/rows.tsv" | sort -u > "$TMP/have.txt"
+    on { id = itemid($0); if (id != "") print id }
+  ' | sort -u > "$TMP/need.txt"
+  [ -s "$TMP/need.txt" ] || bad "no acceptance criteria found in $PL (expected list items like '1.' or 'AC1:' under an 'Acceptance criteria' heading)"
+  cut -f1 "$TMP/rows.tsv" | tr -d '* -' | tr '[:lower:]' '[:upper:]' | sort -u > "$TMP/have.txt"
   while read -r n; do grep -qxF "$n" "$TMP/have.txt" || bad "acceptance criterion $n has no row in the matrix"; done < "$TMP/need.txt"
 else
   bad "$PL not found"
