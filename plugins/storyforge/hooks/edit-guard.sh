@@ -12,6 +12,7 @@ set -uo pipefail
 INPUT=$(cat)
 PHASE=$(sf_phase)
 case "$PHASE" in develop|fix) ;; *) echo '{}'; exit 0;; esac
+sf_find_python
 if [ -z "$SF_PY" ]; then
   if sf_allow_no_python; then echo '{}'; exit 0; fi
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"'"$SF_NO_PY_MSG"'"}}'

@@ -340,7 +340,7 @@ A story is done only when **all** of these hold:
 2. `findings.md` has no open CRITICAL or HIGH.
 3. `test`, `lint`, `typecheck`, plus `integration_test` and `e2e_test` when those phases ran, all exit 0. The orchestrator runs them itself; a subagent saying "all pass" isn't evidence.
 
-The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a numbered criterion in `plan.md` has no row, if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it):
+The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a criterion in `plan.md` has no row (numbered `1.` or labelled `AC1:`, `AC-2.`, `R3)`; ids are compared ignoring case and dashes), if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it):
 
 ```
 $ bash scripts/dod-check.sh 20261027-orders-csv-export
@@ -402,7 +402,9 @@ restored tests/a.test.ts
 removed new test file tests/b.test.ts
 ```
 
-A test-lock violation becomes a CRITICAL gate-integrity finding and the developer is sent back. Lock files such as `package-lock.json` are tolerated for the scope check. This is a check after the fact, not a block in the moment: a bad change can exist briefly, but it can't get through verify or the Stop gate.
+A test-lock violation becomes a CRITICAL gate-integrity finding and the developer is sent back.
+
+**What is not a violation:** generated output and logs (`node_modules`, `dist`, `build`, `coverage`, `test-results`, `playwright-report`, `__pycache__`, `*.log`, `*.tmp`, `.claude/`), lock files such as `package-lock.json` for the scope check, and **snapshot files a test run creates for the first time** (`__snapshots__`, `*.snap`, `*-snapshots`). Add your own patterns with `guard.ignore` in the config. **Changing or deleting an existing snapshot is still a test-lock violation**, because updating a snapshot is how a failing snapshot test gets "fixed" without fixing the code. This is a check after the fact, not a block in the moment: a bad change can exist briefly, but it can't get through verify or the Stop gate.
 
 ---
 
@@ -483,6 +485,7 @@ They only see stories pushed to the shared remote, so developers on forks or wor
 | `require_plan_approval` | `true` | Stop for your approval after the plan |
 | `max_fix_cycles` | `4` | Fix-loop passes before it stops and asks you |
 | `max_stop_blocks` | `3` | Times the Stop gate may block before giving up |
+| `guard.ignore` | `[]` | Extra glob patterns the guard treats as generated output, on top of the built-in list |
 | `light_mode` | `auto` | `auto`, or `off` to always run all phases. `--light` and `--full` on the command override it |
 | `models` | memory-keeper, doc-writer, integration-tester, ui-tester on `sonnet` | Model per agent, overriding the agent's default. Agents not listed use their default (planner, impact-analyst, test-writer, developer, reviewer, security-reviewer and breaker inherit your session's model) |
 
@@ -517,7 +520,7 @@ These run without Claude choosing to, so they can't be talked around.
 | `stop-gate` | When Claude tries to finish, in develop, fix, integrate, ui, verify | Blocks while tests, lint or typecheck fail; in develop and fix, while `guard.sh check` fails; in verify, while `dod-check.sh` fails. Capped by `max_stop_blocks` |
 | `check-careful` | Before shell commands | Asks before destructive commands and denies a small set of catastrophic ones. A best-effort guard, not a security boundary |
 
-**The hooks fail closed.** They need a working Python 3 (`python3`, `python` or `py -3`; each one is actually run, because on Windows `python3` is often a Microsoft Store shortcut that exists but fails). With none, they block and say why instead of silently doing nothing, and the session-start hook warns you.
+**The hooks fail closed.** They need a working Python 3 (`python3`, `python` or `py -3`; each one is actually run, because on Windows `python3` is often a Microsoft Store shortcut that exists but fails). The working command is remembered in `.storyforge/python` so later hooks skip the slow failing probes, and a hook that has nothing to do (for example the format hook with no formatter configured) never starts Python. With none working, the hooks block and say why instead of silently doing nothing, and the session-start hook warns you.
 
 Overrides, for the rare justified case: `touch .storyforge/allow-test-edit` or `touch .storyforge/allow-scope-edit` lets one cycle through (then take a new `guard.sh snapshot`). `touch .storyforge/allow-no-python` lets the hooks stand down when Python really is unavailable. A scope deviation must also be recorded in `plan.md` § Deviations.
 
@@ -637,9 +640,9 @@ Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [
 - **The loop has limits on purpose.** `max_fix_cycles` and `max_stop_blocks` stop it from looping forever. When they trigger, it asks you and lists what is open.
 - **Team features see only the shared remote.** Developers on forks or offline aren't visible. There is no sync with Jira, GitLab issues, or Linear.
 - **Lint and typecheck gates only work if the commands in the config are real.** If they're blank they're skipped silently.
-- **The guard is a check after the fact.** `guard.sh` finds a changed test or out-of-scope file when the developer returns or the Stop gate runs; it does not stop the write in the moment. It also can't see a change that is made and then undone before the next check.
+- **The guard cannot tell a first-time snapshot from a wrongly written one.** It allows new snapshot files because test runs create them; review new snapshots like any other expected value. It is also a check after the fact. `guard.sh` finds a changed test or out-of-scope file when the developer returns or the Stop gate runs; it does not stop the write in the moment. It also can't see a change that is made and then undone before the next check.
 - **Passing tests are not proof of correct code.** The tests come from the same acceptance criteria the code is built from. If a criterion is wrong or missing, tests and code can agree and both be wrong. No mutation testing or coverage measurement is included. The plan-approval gate is where you catch this.
-- **Cost.** A full story runs many agents and costs several times a direct prompt. Light mode and cheaper models for mechanical agents reduce this; they don't make it cheaper than a plain prompt for a tiny change.
+- **Cost.** `build-story` itself is about 15 KB (roughly 3.8K tokens) each time it loads, and its light-mode details load only when light mode is chosen. A full story runs many agents and costs several times a direct prompt. Light mode and cheaper models for mechanical agents reduce this; they don't make it cheaper than a plain prompt for a tiny change.
 - **`check-careful` is not a security boundary.** It's best-effort string matching.
 
 ---
