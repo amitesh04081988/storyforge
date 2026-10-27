@@ -17,6 +17,7 @@ Project memory lives in `docs/memory/` and is committed to git. Read the `rememb
 - Update or create `docs/memory/integrations/<name>.md` for each touched integration, using what was actually built and tested, not what was planned.
 - Add a `DECISIONS.md` entry for each real design choice. Supersede old entries; don't delete them.
 - Add a `LESSONS.md` entry for each bug class found in break or fix that could recur. If a lesson can be enforced by a lint, test, or hook, say so (`principle-encode-lessons-in-structure`).
+- Update `DEPENDENCIES.md` as the `impact-analysis` skill's Mode 2 describes: new or moved areas, changed `Depends on` edges, new runtime links in Notes, new covering tests. Use `scripts/impact.sh` on the story's changed paths to check that nothing the diff touched is unmapped.
 - Update `ARCHITECTURE.md` only if module boundaries changed.
 - Update `INDEX.md` with one line per new file or entry.
 - Write `docs/stories/<id>/summary.md` in 20 lines or fewer.
