@@ -5,6 +5,9 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 cat >/dev/null
 IDX="$SF_PROJECT/docs/memory/INDEX.md"
+if [ -z "$SF_PY" ] && [ -f "$SF_CONFIG" ]; then
+  echo "StoryForge WARNING: $SF_NO_PY_MSG"
+fi
 if [ ! -f "$SF_CONFIG" ]; then
   echo "StoryForge: this repo is not set up yet. Run /storyforge:init-project (it also scaffolds brand-new projects)."
 fi

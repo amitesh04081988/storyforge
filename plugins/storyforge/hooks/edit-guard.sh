@@ -3,13 +3,20 @@
 #  1. Test lock: deny edits to test files (code can't pass by changing its tests).
 #  2. Scope lock (idea from gstack /freeze): deny edits outside the plan's scope globs
 #     in docs/stories/<id>/scope.txt, when scope_lock is true.
-# Overrides: .storyforge/allow-test-edit, .storyforge/allow-scope-edit
+# This hook only sees the Edit and Write tools. Changes made another way (a shell redirect, sed -i,
+# a formatter, a script) are caught afterwards by scripts/guard.sh check.
+# It needs Python. With none working it denies instead of silently allowing (see lib.sh).
+# Overrides: .storyforge/allow-test-edit, .storyforge/allow-scope-edit, .storyforge/allow-no-python
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 INPUT=$(cat)
 PHASE=$(sf_phase)
 case "$PHASE" in develop|fix) ;; *) echo '{}'; exit 0;; esac
-command -v python3 >/dev/null 2>&1 || { echo '{}'; exit 0; }
+if [ -z "$SF_PY" ]; then
+  if sf_allow_no_python; then echo '{}'; exit 0; fi
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"'"$SF_NO_PY_MSG"'"}}'
+  exit 0
+fi
 FILE=$(sf_json_field "$INPUT" tool_input.file_path)
 [ -z "$FILE" ] && FILE=$(sf_json_field "$INPUT" tool_input.notebook_path)
 [ -z "$FILE" ] && { echo '{}'; exit 0; }
@@ -19,7 +26,8 @@ TEST_GLOBS=$(sf_cfg test_globs $'**/*.test.*\n**/*.spec.*\ntests/**\ntest/**')
 SCOPE_LOCK=$(sf_cfg scope_lock true)
 ALLOW_TEST=$([ -f "$SF_STATE/allow-test-edit" ] && echo 1 || echo "")
 ALLOW_SCOPE=$([ -f "$SF_STATE/allow-scope-edit" ] && echo 1 || echo "")
-python3 - "$SF_PROJECT" "$FILE" "$TEST_GLOBS" "$PHASE" "$SCOPE_FILE" "$SCOPE_LOCK" "$ALLOW_TEST" "$ALLOW_SCOPE" "$STORY" <<'PY'
+# shellcheck disable=SC2086
+$SF_PY - "$SF_PROJECT" "$FILE" "$TEST_GLOBS" "$PHASE" "$SCOPE_FILE" "$SCOPE_LOCK" "$ALLOW_TEST" "$ALLOW_SCOPE" "$STORY" <<'PY'
 import os,sys,fnmatch,json
 root,f,tglobs,phase,scope_file,scope_lock,allow_test,allow_scope,story=sys.argv[1:10]
 rel=os.path.relpath(os.path.abspath(f),os.path.abspath(root)).replace(os.sep,"/")
