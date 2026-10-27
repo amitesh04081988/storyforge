@@ -13,6 +13,7 @@ PHASE=$(sf_phase)
 case "$PHASE" in develop|fix|integrate|ui|verify) ;; *) exit 0;; esac
 [ -f "$SF_CONFIG" ] || exit 0
 mkdir -p "$SF_STATE"
+sf_find_python
 
 N=$(( $(cat "$SF_STATE/stop-blocks" 2>/dev/null || echo 0) + 1 ))
 
