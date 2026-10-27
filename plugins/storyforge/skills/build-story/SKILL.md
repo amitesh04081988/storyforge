@@ -11,13 +11,13 @@ You are the **orchestrator**. You run in the main session and delegate each phas
 ## 0. Setup
 
 1. Read `storyforge.config.json` at the repo root. If it's missing, run the `init-project` skill first; for an empty repo it sets up the whole project. Then come back to this story. In headless runs, stop with status `needs-init` instead, because setup needs the user's answers.
-2. **New story:** derive `<id>` as `YYYYMMDD-<short-kebab-slug>`. Create `docs/stories/<id>/story.md` with the story text verbatim. Create a branch `story/<id>` from `base_branch`, or from the current HEAD when `STORYFORGE_QUEUE=1` so queued stories build on each other. If the working tree is dirty, stop and ask.
+2. **New story:** derive `<id>` as `YYYYMMDD-<short-kebab-slug>`. **Claim check:** run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/story-check.sh" <id>` (if the variable is empty, find the script with `find ~/.claude/plugins -path '*storyforge/scripts/story-check.sh'`). Exit 3 means another developer already has this story or one with the same slug on an `origin/story/*` branch. Show its output and stop until the user says to continue; in headless runs, mark status `needs-approval` and end the turn. Then create `docs/stories/<id>/story.md` with the story text verbatim. Create a branch `story/<id>` from `base_branch`, or from the current HEAD when `STORYFORGE_QUEUE=1` so queued stories build on each other. If the working tree is dirty, stop and ask.
    **Resume** (`--resume <id>`): read `docs/stories/<id>/status.md` and continue from the first phase not marked `done`. Use the cycle count recorded there.
 3. Set the phase lock and initialize status:
    ```bash
    mkdir -p .storyforge && echo "<id>" > .storyforge/story && echo "recall" > .storyforge/phase && echo 0 > .storyforge/stop-blocks && rm -f .storyforge/ui-ran .storyforge/allow-*
    ```
-   `status.md` is a checklist of the phases below, plus `fix_cycles: 0`. Update it after every phase. It is what makes a run resumable.
+   `status.md` starts with the header lines `owner: <git config user.name>`, `phase: recall`, and `fix_cycles: 0`, followed by a checklist of the phases below. Update it after every phase, and keep `phase:` equal to `.storyforge/phase`. It is what makes a run resumable, and it is what other developers see in `docs/stories/INDEX.md`.
 
 The hooks read `.storyforge/phase`. Set it with `echo <phase> > .storyforge/phase` at the start of every phase. This matters for three reasons:
 - During `develop` and `fix`, the edit guard blocks test-file edits.
@@ -67,6 +67,8 @@ Follow the skill's gate. If the user must agree, stop here.
 The planner also writes `scope.txt`: one glob per line for the files and directories the story may change. Then:
 - If `require_plan_approval` is `true`, show the user a summary of `plan.md` of 15 lines or fewer and stop until they approve or edit it. In headless runs (`STORYFORGE_HEADLESS=1`), mark status `needs-approval` and end the turn.
 - Always stop and ask if the plan touches auth, payments, data deletion, or a migration on existing data, even when approval is off.
+- **Overlap check:** run `story-check.sh <id> docs/stories/<id>/scope.txt`. Exit 3 means another open story on `origin/story/*` plans to change the same files. Show its output, `echo blocked > .storyforge/phase`, and stop. The user decides whether to coordinate with that owner, narrow the scope, or continue.
+- **Share the claim:** unless `claim.push_early` is `false` in the config, commit only `docs/stories/<id>/` (story, plan, scope, status) as `docs(story): claim <id>` and run `git push -u origin story/<id>`. Skip this when there is no `origin` remote. Pushing early is what lets other developers see that the story is taken.
 
 ### Review (phase 6)
 
@@ -126,7 +128,7 @@ Then build the **definition-of-done matrix** in `status.md` under `## Definition
 ### Commit and ship (phases 16-17)
 
 1. `echo done > .storyforge/phase`.
-2. Commit following the `ship` skill's step 2 (bisectable commits). Include `docs/stories/<id>/`, `docs/memory/`, `docs/features/`, and any e2e snapshots.
+2. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/story-index.sh"` to refresh `docs/stories/INDEX.md` (set this story's `phase:` to `done` first). Commit following the `ship` skill's step 2 (bisectable commits). Include `docs/stories/INDEX.md`, `docs/stories/<id>/`, `docs/memory/`, `docs/features/`, and any e2e snapshots.
 3. If `ship.mode` is `pr` or `pr-babysit`, continue with the `ship` skill from step 1, which syncs with the base branch and re-tests. Otherwise stop after committing.
 4. Report to the user in 12 lines or fewer: what was built, test counts, findings fixed vs. deferred (INFO only), criteria passed out of total, memory and docs updated, reflect proposals waiting for approval, the PR link if one was opened, and anything blocked.
 
