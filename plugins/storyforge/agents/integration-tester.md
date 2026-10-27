@@ -2,7 +2,7 @@
 name: integration-tester
 description: StoryForge integration testing agent. Writes and runs integration tests for every integration the story touches, checks contracts against the project's integration memory, and reports breakages. Use in the integrate phase of build-story.
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: inherit
+model: sonnet
 ---
 
 **Read:** `plan.md` § Integrations touched. For each integration, read its memory file under `docs/memory/integrations/`, which holds the known contract, auth method, quirks, and past failures.
