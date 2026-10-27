@@ -1,6 +1,6 @@
 ---
 name: build-story
-description: "Run the full StoryForge pipeline for a user story: recall project memory, product review, plan, write failing tests, implement, code review (optionally multi-model), security review, adversarial 'break it' testing, fix loop, integration tests, Playwright UI tests, verification, feature docs with UML diagrams, memory update, reflection, commit, and optionally ship a PR and babysit CI. Use whenever the user gives a story, feature description, ticket, or says 'build this', 'implement this story', '/build-story', or asks to resume a story run with --resume <id>."
+description: "Run the full StoryForge pipeline for a user story: recall project memory, product review, plan, impact analysis against the dependency map, write failing tests, implement, code review (optionally multi-model), security review, adversarial 'break it' testing, fix loop, integration tests, Playwright UI tests, verification, feature docs with UML diagrams, memory update, reflection, commit, and optionally ship a PR and babysit CI. Use whenever the user gives a story, feature description, ticket, or says 'build this', 'implement this story', '/build-story', or asks to resume a story run with --resume <id>."
 argument-hint: "<story text | path/to/story.md> | --resume <story-id>"
 ---
 
@@ -31,6 +31,7 @@ The hooks read `.storyforge/phase`. Set it with `echo <phase> > .storyforge/phas
 | 1 | recall | `memory-keeper` (recall) | `context.md` | Relevant memory slice saved |
 | 2 | product | you, with the `product-review` skill | `product.md` | Premises, scope mode, approach agreed |
 | 3 | plan | `planner` | `plan.md`, `scope.txt` | Criteria, design, test plan, integrations, scope |
+| 3b | impact | `impact-analyst` | `impact.md`, appended `plan.md` and `scope.txt`, `DEPENDENCIES.md` | Every affected area decided (none, check, or change) with evidence |
 | 4 | tests | `test-writer` | test files, `test-report.md` | New tests fail **for the predicted reason** |
 | 5 | develop | `developer` | production code | New and existing tests pass |
 | 6 | review | `reviewer` (×N models if configured) | `findings.md` § Review | Findings recorded |
@@ -62,7 +63,15 @@ Run phases 6 and 7 in parallel; they don't depend on each other. Phase 8 runs af
 
 Follow the skill's gate. If the user must agree, stop here.
 
-### Gate after plan (phase 3)
+### Impact (phase 3b)
+
+`echo impact > .storyforge/phase`. Skip this phase, marking `skipped: impact.enabled is false`, when `impact.enabled` is `false` in the config. Otherwise:
+- If `docs/memory/DEPENDENCIES.md` is missing or has only `_example` rows, run the `impact-analysis` skill in `map` mode first, so there is a map to look up.
+- Call `impact-analyst` with the story id and `impact.max_depth` (default 3). It looks up every area in the plan, decides per area whether it needs no change, a check, or a change, writes `impact.md`, and appends the follow-up work to `plan.md` (§ Impact-driven changes and § Test plan) and the `change` areas' paths to `scope.txt`.
+- Any `NEEDS INPUT` row stops the run like a product question: `echo blocked > .storyforge/phase` and ask.
+- Run this before the gate below, so the plan the user approves already includes the impact-driven work and the overlap check sees the full scope.
+
+### Gate after plan (phases 3 and 3b)
 
 The planner also writes `scope.txt`: one glob per line for the files and directories the story may change. Then:
 - If `require_plan_approval` is `true`, show the user a summary of `plan.md` of 15 lines or fewer and stop until they approve or edit it. In headless runs (`STORYFORGE_HEADLESS=1`), mark status `needs-approval` and end the turn.
@@ -108,7 +117,7 @@ Run it only if `ui.enabled` is true **and** the plan or diff touches UI files (c
 
 Run `test`, `lint`, and `typecheck` from the config yourself, plus `integration_test` if phase 10 ran and `e2e_test` if phase 11 ran. Read the exit codes and the real output. Apply `principle-prove-it-works`: a subagent saying "all tests pass" is not evidence. Paste the pass/fail counts into `status.md`.
 
-Then build the **definition-of-done matrix** in `status.md` under `## Definition of done`. One row for every numbered acceptance criterion in `plan.md`, plus one row for every business rule or validation the story text names:
+Then build the **definition-of-done matrix** in `status.md` under `## Definition of done`. One row for every numbered acceptance criterion in `plan.md`, plus one row for every business rule or validation the story text names, plus one row for every area marked `check` or `change` in `impact.md` (evidence is the named test or command, run now, or the observed result):
 
 | # | Criterion or rule | Evidence (test `path::name`, or command and observed output) | Result |
 |---|-------------------|----------------------------------------------------------------|--------|

@@ -48,6 +48,10 @@
     "mode": "commit",
     "auto_merge": false
   },
+  "impact": {
+    "enabled": true,
+    "max_depth": 3
+  },
   "claim": {
     "push_early": true
   },
