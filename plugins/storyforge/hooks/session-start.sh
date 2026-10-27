@@ -5,6 +5,7 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 cat >/dev/null
 IDX="$SF_PROJECT/docs/memory/INDEX.md"
+[ -f "$SF_CONFIG" ] && sf_find_python
 if [ -z "$SF_PY" ] && [ -f "$SF_CONFIG" ]; then
   echo "StoryForge WARNING: $SF_NO_PY_MSG"
 fi

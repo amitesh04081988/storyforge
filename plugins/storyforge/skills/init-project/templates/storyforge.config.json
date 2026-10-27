@@ -48,6 +48,9 @@
     "mode": "commit",
     "auto_merge": false
   },
+  "guard": {
+    "ignore": []
+  },
   "light_mode": "auto",
   "models": {
     "memory-keeper": "sonnet",

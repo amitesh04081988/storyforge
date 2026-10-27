@@ -3,21 +3,37 @@
 SF_PROJECT="${CLAUDE_PROJECT_DIR:-$PWD}"
 SF_STATE="$SF_PROJECT/.storyforge"
 SF_CONFIG="$SF_PROJECT/storyforge.config.json"
+SF_PY=""
+SF_PY_CHECKED=""
 
-# Find a Python 3 that actually runs and set SF_PY to its command ("" when none does).
-# Existing is not enough: on Windows `python3` is often the Microsoft Store shortcut, which is on
-# the PATH but only prints "Python was not found". So each candidate is executed once.
+# sf_py_ok <command>: does this command run a Python 3? (unquoted on purpose so "py -3" splits)
+sf_py_ok() {
+  # shellcheck disable=SC2086
+  $1 -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1
+}
+
+# Find a Python 3 that actually runs and set SF_PY to its command ("" when none does). Lazy: a hook calls
+# this only when it needs Python, so hooks that exit early pay nothing.
+# Existing is not enough: on Windows `python3` is often the Microsoft Store shortcut, which is on the PATH
+# but only prints "Python was not found". So each candidate is executed. The winner is remembered in
+# .storyforge/python (when that folder exists) and tried first next time, which skips the slow failing probes.
 sf_find_python() {
-  [ -n "${SF_PY_CHECKED:-}" ] && return 0
+  [ -n "$SF_PY_CHECKED" ] && return 0
   SF_PY_CHECKED=1; SF_PY=""
-  local c
+  local c cache="$SF_STATE/python"
+  if [ -f "$cache" ]; then
+    c=$(cat "$cache" 2>/dev/null)
+    if [ -n "$c" ] && sf_py_ok "$c"; then SF_PY="$c"; return 0; fi
+  fi
   for c in python3 python "py -3"; do
-    # shellcheck disable=SC2086
-    if $c -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1; then SF_PY="$c"; return 0; fi
+    if sf_py_ok "$c"; then
+      SF_PY="$c"
+      [ -d "$SF_STATE" ] && printf '%s' "$c" > "$cache" 2>/dev/null
+      return 0
+    fi
   done
   return 1
 }
-sf_find_python
 
 # Hooks that need Python must not silently turn themselves off when it is missing.
 # They block and say why, unless the user has run: touch .storyforge/allow-no-python
@@ -29,6 +45,7 @@ sf_phase() { cat "$SF_STATE/phase" 2>/dev/null || echo ""; }
 
 # sf_cfg <key> [default]  -> prints scalar config value (lists joined by newline)
 sf_cfg() {
+  sf_find_python
   [ -f "$SF_CONFIG" ] && [ -n "$SF_PY" ] || { printf '%s' "${2:-}"; return; }
   # shellcheck disable=SC2086
   $SF_PY - "$SF_CONFIG" "$1" "${2:-}" <<'PY' 2>/dev/null || printf '%s' "${2:-}"
@@ -46,6 +63,7 @@ PY
 
 # sf_json_field <json> <dotted.path>  -> prints string value or empty
 sf_json_field() {
+  sf_find_python
   [ -n "$SF_PY" ] || return 0
   # shellcheck disable=SC2086
   printf '%s' "$1" | $SF_PY -c '
