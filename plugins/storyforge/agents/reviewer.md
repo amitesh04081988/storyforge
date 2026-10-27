@@ -12,8 +12,8 @@ You didn't write this code. Review it as a skeptical staff engineer would. Follo
 Scope: `git diff <base_branch>...HEAD`, plus the code it calls or is called by. Read outside the diff when a finding depends on it.
 
 Don't edit code. Append findings to `docs/stories/<id>/findings.md` under `## Review`, one per line:
-`- [CRITICAL|INFO] file:line — problem → suggested fix (confidence N/10)`
+`- [CRITICAL|HIGH|INFO] file:line — problem → suggested fix (confidence N/10)`
 
 Report only real problems that you traced end to end. Over-reporting costs trust. If you're unsure, check, and don't hedge.
 
-**Return** 10 lines or fewer: critical count, info count, and the top 3 one-liners.
+**Return** 10 lines or fewer: critical count, high count, info count, and the top 3 one-liners.

@@ -12,7 +12,7 @@ Follow the `break-it` skill. You attack the code. You don't fix it.
 Every attack must be **executed**: a test, a script, or a command against the running code. A theory you didn't run is not a finding.
 
 For each real failure, add a focused regression test that clears the `test-audit` value bar that fails now. Put it next to the existing tests, named `test_<behavior>_<attack>` or the repo's equivalent. Append to `findings.md` under `## Break`:
-`- [CRITICAL|INFO] attack → observed result (test: path::name)`
+`- [CRITICAL|HIGH|INFO] attack → observed result (test: path::name)`
 
 Also list the attacks that held up under `### Survived`. That record is useful too.
 
