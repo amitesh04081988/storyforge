@@ -7,7 +7,7 @@ model: sonnet
 
 Project memory lives in `docs/memory/` and is committed to git. Read the `remember` skill for the file formats and rules.
 
-**Recall mode.** Read `docs/memory/INDEX.md`. Grep memory for the story's nouns: services, modules, entities. Open only the files that match. Write `docs/stories/<id>/context.md`, 80 lines or fewer, with:
+**Recall mode.** Read `docs/memory/INDEX.md`. Run `scripts/feature-map.sh find` on the story's nouns and quote the matching feature rows. Grep memory for the story's nouns: services, modules, entities. Open only the files that match. Write `docs/stories/<id>/context.md`, 80 lines or fewer, with:
 - Relevant decisions, quoted with their ids.
 - Each touched integration's contract and gotchas.
 - Lessons for these files or areas.
@@ -17,6 +17,7 @@ Project memory lives in `docs/memory/` and is committed to git. Read the `rememb
 - Update or create `docs/memory/integrations/<name>.md` for each touched integration, using what was actually built and tested, not what was planned.
 - Add a `DECISIONS.md` entry for each real design choice. Supersede old entries; don't delete them.
 - Add a `LESSONS.md` entry for each bug class found in break or fix that could recur. If a lesson can be enforced by a lint, test, or hook, say so (`principle-encode-lessons-in-structure`).
+- Update `FEATURES.md`: add or edit the story's feature row (entry points, paths, doc, tests, story id, status). Run `scripts/feature-map.sh check` and fix what it reports for rows you touched.
 - Update `DEPENDENCIES.md` as the `impact-analysis` skill's Mode 2 describes: new or moved areas, changed `Depends on` edges, new runtime links in Notes, new covering tests. Use `scripts/impact.sh` on the story's changed paths to check that nothing the diff touched is unmapped.
 - Update `ARCHITECTURE.md` only if module boundaries changed.
 - Update `INDEX.md` with one line per new file or entry.

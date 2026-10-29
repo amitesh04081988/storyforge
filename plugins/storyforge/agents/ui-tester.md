@@ -15,4 +15,4 @@ You inherit all tools, so the Playwright MCP browser tools are available when th
 
 Never run against production or shared environments. Use only test accounts. Don't edit production code.
 
-Append to `findings.md` under `## UI`. **Return** 10 lines or fewer: specs added, pass/fail counts per viewport, accessibility violations, and issues by severity.
+Append to `findings.md` under `## UI`, one finding per line, as the `ui-test` skill's Output section says: `- [CRITICAL|HIGH|INFO] <category> — what happens → expected (spec: path::name)`. Map the taxonomy's critical to `CRITICAL`, high to `HIGH`, and medium and low to `INFO`; the done check reads only these tags. A serious or critical accessibility violation is `HIGH` or `CRITICAL`. **Return** 10 lines or fewer: specs added, pass/fail counts per viewport, accessibility violations, and counts of CRITICAL, HIGH and INFO findings.

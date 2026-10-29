@@ -2,6 +2,8 @@
 
 StoryForge is a Claude Code plugin that takes a **user story** and carries it to a finished, tested, reviewed, documented change. It plans, writes failing tests first, implements, reviews, attacks its own work, fixes by root cause, checks everything the change could affect, and refuses to call the story done until every acceptance criterion has evidence.
 
+For anything bigger than one story, `/storyforge:bits-mode` acts as a **manager**: it splits the request into tasks, assigns each to the right agent, verifies every result itself, updates the feature map, dependency map and memory, and repeats until all tasks are done or blocked.
+
 It also works across a team: stories are claimed on git branches, a story index shows who is doing what, and a dependency map tells every story what else it touches.
 
 - [Install](#install)
@@ -13,6 +15,8 @@ It also works across a team: stories are claimed on git branches, a story index 
 - [Worked example: one story, start to finish](#worked-example-one-story-start-to-finish)
 - [The dependency matrix and impact analysis](#the-dependency-matrix-and-impact-analysis)
 - [Definition of done](#definition-of-done)
+- [Bits mode: the manager](#bits-mode-the-manager)
+- [The feature map](#the-feature-map)
 - [Working as a team](#working-as-a-team)
 - [Configuration reference](#configuration-reference)
 - [Scripts](#scripts)
@@ -73,6 +77,9 @@ The same steps are available inside Claude Code from the `/plugin` menu: update 
 | 0.5 | Story index, claim and overlap checks, `status.md` gets `owner:` and `phase:` | Nothing. `docs/stories/INDEX.md` appears when the next story is committed. Set `claim.push_early` to `false` if you do not want the branch pushed after planning |
 | 0.6 | Dependency map and the impact phase | Run `/storyforge:impact-analysis map` once to create `docs/memory/DEPENDENCIES.md`. Without it, the first story builds it. Set `impact.enabled` to `false` to opt out |
 | 0.7 | Fail-closed hooks, guard, scripted done check, model tiering, light mode | Make sure `python3`, `python` or `py -3` runs in your shell (see [Troubleshooting](#troubleshooting)). Optionally add `models`, `light_mode` and `guard.ignore` to the config (defaults apply when absent) |
+| 0.8 | Feature map and parallel agents | New `docs/memory/FEATURES.md` (the sitemap of features: entry points, paths, docs, tests); `feature-map.sh list/find/check`. Re-run `/storyforge:init-project` to create it. Plans now split into work units that run as parallel agents, and full-mode review runs `opus` and `sonnet` side by side. `parallel.max_workers: 1` restores one-at-a-time
+| 0.9 | `bits-mode` router and 40 more skills | New: `/storyforge:bits-mode` picks the right skill for a task. Added `architect`, `arena`, `swarm`, `how`, `why`, `figure-it-out`, `deslop`, `no-comments`, `unslop`, `statechart`, `create-verification-skill`, `benchmark-checklist`, 13 more principles and others. `/storyforge:setup-bits` writes `~/.claude/bits-models.md`. Nothing to migrate
+| 0.10 | Manager loop and parallel programs | `/storyforge:bits-mode` now runs a task ledger (`.storyforge/tasks.tsv`): it assigns each task, verifies it, updates the feature map, dependency map and memory, and repeats until all are done or blocked. Minor tasks take light mode. Independent stories run in parallel, one `git worktree` and one headless session each, and a PR is mergeable only when its verdict was recorded at its current head commit. Needs `gh` and, for parallel stories, the `claude` CLI. Nothing to migrate
 
 To see the new keys next to your own, compare your `storyforge.config.json` with `plugins/storyforge/skills/init-project/templates/storyforge.config.json` in this repository, or run `/storyforge:init-project` again. Re-running it on a set-up project refreshes detection and docs and only adds to memory, never overwrites it.
 
@@ -265,6 +272,8 @@ Impact: reports checked (new test added). Memory + docs updated. Reflect: 1 prop
 
 ## The dependency matrix and impact analysis
 
+Every project also gets a **feature map**, `docs/memory/FEATURES.md`: a sitemap of what the product does. Each row names a feature, how it is reached (route, screen, command, job), the code paths that implement it, its doc, its tests, and the stories that changed it. Agents run `feature-map.sh find <word>` before they plan or code, so they land in the right place instead of building a second copy. `feature-map.sh check` flags rows whose paths no longer exist.
+
 Every project gets a **dependency map**, `docs/memory/DEPENDENCIES.md`. It answers: "if I change this, what else could break, and what do I need to re-check or change?"
 
 ### The format
@@ -378,7 +387,7 @@ A story is done only when **all** of these hold:
 2. `findings.md` has no open CRITICAL or HIGH.
 3. `test`, `lint`, `typecheck`, plus `integration_test` and `e2e_test` when those phases ran, all exit 0. The orchestrator runs them itself; a subagent saying "all pass" isn't evidence.
 
-The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a criterion in `plan.md` has no row (numbered `1.` or labelled `AC1:`, `AC-2.`, `R3)`; ids are compared ignoring case and dashes), if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it):
+The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a criterion in `plan.md` has no row (numbered `1.` or labelled `AC1:`, `AC-2.`, `R3)`; ids are compared ignoring case and dashes), if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it). Every agent, including the UI and integration testers, writes findings as `- [CRITICAL|HIGH|INFO] ...`, and the check matches the tags ignoring case:
 
 ```
 $ bash scripts/dod-check.sh 20261027-orders-csv-export
@@ -443,6 +452,47 @@ removed new test file tests/b.test.ts
 A test-lock violation becomes a CRITICAL gate-integrity finding and the developer is sent back.
 
 **What is not a violation:** generated output and logs (`node_modules`, `dist`, `build`, `coverage`, `test-results`, `playwright-report`, `__pycache__`, `*.log`, `*.tmp`, `.claude/`), lock files such as `package-lock.json` for the scope check, and **snapshot files a test run creates for the first time** (`__snapshots__`, `*.snap`, `*-snapshots`). Add your own patterns with `guard.ignore` in the config. **Changing or deleting an existing snapshot is still a test-lock violation**, because updating a snapshot is how a failing snapshot test gets "fixed" without fixing the code. This is a check after the fact, not a block in the moment: a bad change can exist briefly, but it can't get through verify or the Stop gate.
+
+---
+
+## Bits mode: the manager
+
+`/storyforge:bits-mode <task>` is the single entry point. It restates your goal, then routes the task: a story to `build-story`, an unknown bug to `investigate` or `why`, a design choice to `architect` or `arena`, broad parallel work to `swarm`, a vague request to `sharpen`. It is modelled on pstack's `poteto-mode`, rebuilt on StoryForge's pipeline.
+
+**The manager loop** runs when the request has several tasks (`playbooks/manager-loop.md`):
+
+1. **Queue.** Each task goes into a ledger, `.storyforge/tasks.tsv`, with its dependencies and a mode: `direct` (docs, config, a one-line fix), `light` (a bug fix or small tweak: 3 files or fewer, no auth, payments, data, migration, UI or integration) or `full`.
+2. **Assign.** It takes the tasks whose dependencies are done, up to `parallel.max_workers`, and gives each to the right agent or to `build-story`.
+3. **Verify.** It runs the config's test, lint and typecheck itself and runs `dod-check.sh`. A report of "done" is not evidence.
+4. **Update.** The story's memory phase updates `FEATURES.md`, `DEPENDENCIES.md`, decisions and lessons. Light mode does this too whenever a feature's paths or a dependency changed. Then `feature-map.sh check` and `impact.sh` run on the merged branch.
+5. **Repeat** until `bits-tasks.sh status` exits 0. It stops only for a blocked task, a product decision, an irreversible action, or a pass that made no progress. A task that fails twice is blocked and you are asked.
+
+**Parallel stories** (`playbooks/program.md`) give each independent story its own `git worktree` and its own headless `claude -p` session via `run-story.sh`. A subagent cannot spawn subagents, so one session per story is how each story keeps its full set of role agents. Independent verification uses a different model from the one that built the change. A wave of more than two sessions needs your go first, because each session is a full pipeline.
+
+**The merge gate** is code, not judgment. `bits-tasks.sh pr` records what was verified and at which head commit. `bits-tasks.sh mergeable` succeeds only if the verdict is `live-ui-verified` or `unit-test-verified` and was recorded at the PR's current head. `pr-watch.sh` must also say READY (CI green, no conflicts, no review outstanding). With `ship.auto_merge` on (the default), the coordinator merges with `gh pr merge --squash --match-head-commit <sha>`, which GitHub refuses if the head moved. Story sessions are denied `gh pr merge`.
+
+`/storyforge:bits-mode resume` continues after a restart. The session-start hook lists unfinished tasks.
+
+**What it brings with it.** `bits-mode` is also the way into the skills ported from pstack: `architect`, `arena`, `swarm`, `how`, `why`, `figure-it-out`, `deslop`, `no-comments`, `unslop`, `technical-writing`, `typescript-best-practices`, `thermo-nuclear-code-quality-review`, `statechart`, `create-verification-skill`, `benchmark-checklist`, `recall`, `sharpen`, `teach` and more, plus all 23 `principle-*` skills. `/storyforge:setup-bits` writes `~/.claude/bits-models.md`, a per-role model sheet (for example `arena runners: opus, sonnet`).
+
+**Headless runs** need Bash allow rules. Start from `skills/init-project/templates/claude/settings.headless.json`: it allows the project's test commands, local git and the plugin scripts, and denies push, reset, rebase, curl and installs.
+
+---
+
+## The feature map
+
+`docs/memory/FEATURES.md` is the sitemap of what the product does. One row per feature:
+
+| Column | Meaning |
+|---|---|
+| Feature | Unique name |
+| Entry | How a user or caller reaches it: route, screen, command, job |
+| Paths | Globs that implement it |
+| Area | Its `DEPENDENCIES.md` area |
+| Status | `live`, `beta`, `planned`, `deprecated` |
+| Doc, Tests, Stories | Its doc, its tests, and the stories that changed it |
+
+Agents run `feature-map.sh find <word>` before planning or coding, so they extend what exists instead of building a second copy. The planner records which feature a story extends (or `NEW`), the memory phase updates the row, and `feature-map.sh check` in verify flags rows whose paths no longer exist or whose doc is missing. `init-project` seeds it from the code and sets `merge=union` in `.gitattributes` so rows added by parallel stories merge without conflicts. It answers "what exists and where"; `DEPENDENCIES.md` answers "what breaks if I change it".
 
 ---
 
@@ -511,12 +561,13 @@ They only see stories pushed to the shared remote, so developers on forks or wor
 | `ui.visual_snapshots`, `ui.accessibility` | `true`, `true` | Visual and accessibility checks |
 | `docs.level` | `light` | How much documentation to write |
 | `product_review` | `auto` | `auto` (new capabilities only), `always`, or `off` |
-| `review.models` | `["inherit"]` | More than one model runs a multi-model review |
+| `review.models` | `["opus","sonnet"]` | Full mode runs one reviewer per model in parallel; light mode always uses one |
+| `parallel.max_workers` | `3` | Most agents launched at once per wave (work units, fix groups). `1` runs everything one at a time |
 | `scope_lock` | `true` | Block edits outside `scope.txt` during develop and fix |
 | `reflect.after_each_story` | `true` | Propose process improvements after each story |
 | `reflect.retro_every_n_stories` | `10` | When to suggest a retro |
 | `ship.mode` | `commit` | `commit`, `pr`, or `pr-babysit` (opens the PR and fixes CI and review comments) |
-| `ship.auto_merge` | `false` | Whether the shipped PR may be merged automatically |
+| `ship.auto_merge` | `true` | The orchestrator merges a PR itself, but only when `pr-watch.sh` says READY (CI green, no conflicts, no review outstanding) and, in a bits-mode run, `bits-tasks.sh mergeable` confirms the verdict covers the exact head commit. It merges with `gh pr merge --squash --match-head-commit <sha>`, so a head that moved after verification is refused. Set `false` to merge by hand |
 | `impact.enabled` | `true` | Run the impact phase |
 | `impact.max_depth` | `3` | How many hops of dependents to follow |
 | `claim.push_early` | `true` | Push the story branch after planning so others see the claim |
@@ -543,6 +594,10 @@ All live in `plugins/storyforge/scripts/` in this repository. Once the plugin is
 | `dod-check.sh` | Checks a story's definition of done with code. Exit 1 means not done | `bash scripts/dod-check.sh <id>` |
 | `impact.sh` | Maps changed paths to areas and their dependents | `bash scripts/impact.sh --depth 2 src/billing/**` |
 | `dep-scan.sh` | Suggests dependency edges from import lines | `bash scripts/dep-scan.sh` |
+| `feature-map.sh` | Lists, searches and checks the feature map. `check` exits 1 on stale rows | `bash scripts/feature-map.sh find export` |
+| `bits-tasks.sh` | The manager's task ledger and merge gate (`add`, `next`, `set`, `pr`, `mergeable`, `status`) | `bash scripts/bits-tasks.sh mergeable 2 <head-sha>` |
+| `worktree.sh` | One git worktree per task; refuses to remove one with uncommitted changes | `bash scripts/worktree.sh add <task-id>` |
+| `pr-watch.sh` | One-line PR state from `gh`: READY, WAIT, ACT or CLOSED, by exit code | `bash scripts/pr-watch.sh 41` |
 
 ---
 
@@ -573,7 +628,7 @@ Overrides, for the rare justified case: `touch .storyforge/allow-test-edit` or `
 | **Subagents** | Each phase runs in its own context. Reviewers can't edit code. |
 | **Model tiering** | Mostly mechanical agents (memory-keeper, doc-writer, integration-tester, ui-tester) default to `sonnet`; the judgment-heavy ones use your session's model. Change any of them with `models` in the config. |
 | **Product review** | Before planning: challenges the premise, finds existing code to reuse, picks a scope mode, and compares minimal, ideal and lateral approaches. `product_review`: `auto`, `always`, or `off`. |
-| **Multi-model review** | Set `review.models` to for example `["opus","sonnet"]`: one reviewer per model, merged with lead judgment. Used automatically for auth, payments, data and concurrency stories. |
+| **Multi-model review** | Default in full mode: one reviewer per model in `review.models` (`opus`, `sonnet`), run in parallel with the security review and merged with lead judgment. Auth, payments, data and concurrency stories always get at least two. |
 | **Test value bar** | Every new test must name the regression it catches and why existing coverage misses it. `/storyforge:test-audit` prunes low-value tests. |
 | **UI tests** | Committed Playwright specs per acceptance criterion across desktop and mobile, with visual snapshots, axe accessibility checks and console-error checks, then a short exploratory pass with the Playwright MCP. Only when a story touches UI. |
 | **Feature docs** | `docs/features/<feature>.md` with Mermaid sequence, state and ER diagrams, written from the built code. `docs.level`: `light` or `full`. |
@@ -608,6 +663,7 @@ docs/
   memory/
     INDEX.md                        one line per memory file (loaded at session start)
     ARCHITECTURE.md                 modules and boundaries
+    FEATURES.md                     the feature map (sitemap)
     DEPENDENCIES.md                 the dependency map
     DECISIONS.md                    design decisions (D-001, D-002, ...)
     LESSONS.md                      bug classes and how they're prevented (L-001, ...)
@@ -624,7 +680,9 @@ docs/
   ONBOARDING.md                     guide for new developers
 .claude/skills/project-conventions/ project-specific conventions
 .claude/rules/<area>.md             rules loaded only when those paths are touched
-.storyforge/                        local run state (gitignored): phase, story, lock files
+.storyforge/                        local run state (gitignored): phase, story, lock files, tasks.tsv
+.gitattributes                      merge=union for FEATURES.md and DEPENDENCIES.md
+<repo>.worktrees/<task-id>/         one worktree per parallel story (outside the repo)
 ```
 
 ---
@@ -637,6 +695,7 @@ docs/
 
 | Skill | Use it for |
 |-------|-----------|
+| `bits-mode` | Start here: routes a task, or manages a queue of tasks until all are done |
 | `build-story` | The full pipeline for a story |
 | `init-project` / `new-project` | Set up an existing repo / start from nothing |
 | `impact-analysis` | What a change or issue affects; build or repair the dependency map |
@@ -654,7 +713,17 @@ docs/
 | `correct` | Make a repeated mistake impossible with structure, not more text |
 | `ship` | Commits, PR, then watch CI and review comments |
 
-`principle-*` skills (fix root causes, prove it works, subtract before you add, and others) are short rules the agents apply while working.
+Added in 0.9 and 0.10:
+
+| Skill | Use it for |
+|-------|-----------|
+| `architect` / `arena` / `swarm` | Design the shape first / competing attempts merged / parallel fan-out |
+| `how` / `why` / `figure-it-out` | Explain code / trace its history / design a bespoke plan for an odd task |
+| `deslop` / `no-comments` / `unslop` | Remove AI-style code, comments and prose |
+| `create-verification-skill` / `statechart` / `benchmark-checklist` | Run-the-real-app checks / state machines / vet a performance number |
+| `setup-bits` | Choose the model per role |
+
+`principle-*` skills (23 in all: fix root causes, prove it works, subtract before you add, and others) are short rules the agents apply while working. Not listed above: `recall`, `sharpen`, `teach`, `ketchup`, `show-me-your-work`, `what-did-i-get-done`, `technical-writing`, `typescript-best-practices`, `thermo-nuclear-code-quality-review`, and the formal-verification skills.
 
 ### Where the skills come from
 
@@ -666,7 +735,9 @@ docs/
 | product-review | merged: gstack office-hours + plan-ceo-review |
 | reflect | merged: pstack reflect + gstack retro |
 | investigate, test-audit | adapted from gstack |
-| tdd, blast-radius, thermo-nuclear-review, correct, 11 × principle-* | pstack |
+| tdd, blast-radius, thermo-nuclear-review, correct, 23 × principle-* | pstack |
+| architect, arena, swarm, how, why, figure-it-out, deslop, no-comments, unslop, statechart, and the other skills listed above | ported from pstack (MIT), renamed |
+| bits-mode, setup-bits, the manager loop, `bits-tasks.sh`, `pr-watch.sh`, `worktree.sh`, `feature-map.sh` | StoryForge, with ideas from pstack's orchestrate, autopilot, shipping and babysit playbooks |
 
 Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [pstack-claude](https://github.com/michael-denyer/pstack-claude). See `NOTICE.md`.
 
@@ -674,6 +745,9 @@ Built on ideas and files from [gstack](https://github.com/garrytan/gstack) and [
 
 ## Limits and honest caveats
 
+- **Parallel headless stories are not yet proven end to end.** The task ledger, worktrees, merge gate, review and edit guard have been exercised on a small project. Running two full `run-story.sh` sessions at once has not, and each session is a full pipeline, so it costs roughly N times one story. Try one small wave first.
+- **The merge gate trusts the recorded verdict.** It proves a verdict matches the head commit, not that the verifier was thorough. `READY` from `pr-watch.sh` reflects GitHub's CI and review state only.
+- **`ship.auto_merge` only matters with `ship.mode` set to `pr` or `pr-babysit`.**
 - **The dependency map is a guide, not proof.** Edges come from a text search of import lines and from what people write in Notes. Events, queues, shared tables, HTTP calls, reflection and dynamic imports are only as good as the Notes. A listed dependent means "check it", not "it's broken". The impact-analyst verifies each one against the code, but an area missing from the map can still be missed.
 - **Monorepos with shared libraries** need an area per shared package, or changes there show as `UNMAPPED`.
 - **"Done" is only as strong as the criteria.** The matrix checks that every criterion and rule has evidence. It can't tell you that the story missed a requirement. The approval gate after the plan is where you catch that.

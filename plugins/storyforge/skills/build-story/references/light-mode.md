@@ -8,7 +8,7 @@ Read this only when you have chosen `mode: light`. It says what runs, what is sk
 - Verify: the full definition-of-done matrix and `dod-check.sh`, exactly as in full mode.
 
 **Skips**, marking each `skipped: light mode` in `status.md`: product, break, integrate, ui, docs, remember, reflect.
-- Remember still runs when the story produced a decision or a lesson worth keeping.
+- Remember still runs when the story produced a decision or a lesson worth keeping, **and whenever the diff changed a feature's paths or entry points (`FEATURES.md`) or a dependency edge (`DEPENDENCIES.md`)**. Run `feature-map.sh check` and `impact.sh --scope` in verify and fix what they report.
 - Security review still runs when the diff touches auth, sessions, tokens, crypto, payments, uploads, or SQL and query building.
 
 **Never skipped, in any mode:** failing tests first, the guard checks, the Stop gate, review, and the definition-of-done matrix with `dod-check.sh`.

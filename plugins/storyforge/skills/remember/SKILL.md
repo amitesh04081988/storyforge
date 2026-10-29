@@ -11,6 +11,7 @@ Memory is plain markdown under `docs/memory/`, committed to git. It's built to b
 docs/memory/
 ├── INDEX.md            # ≤ 80 lines. One line per file or entry. Loaded at session start by the hook.
 ├── ARCHITECTURE.md     # Module map: what lives where, and the boundaries. ≤ 150 lines.
+├── FEATURES.md         # Feature map (sitemap): feature, entry points, paths, doc, tests, stories. One line per feature.
 ├── DECISIONS.md        # Numbered decision records. Append-only; supersede, never delete.
 ├── LESSONS.md          # Bug classes that happened and how to avoid them.
 └── integrations/

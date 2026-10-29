@@ -6,6 +6,8 @@
 #   run-story.sh --queue stories.txt        # one story per line; stops at the first that needs a human
 # Extra claude flags: STORYFORGE_CLAUDE_FLAGS (default: --permission-mode acceptEdits)
 # Unattended runs also need Bash allow rules in .claude/settings.json for your test/lint/git commands.
+# Start from skills/init-project/templates/claude/settings.headless.json: it allows the project's test commands, local git,
+# and the plugin scripts, and denies push, reset, rebase, curl, and installs. Adjust the test commands to your stack.
 set -uo pipefail
 FLAGS=${STORYFORGE_CLAUDE_FLAGS:---permission-mode acceptEdits}
 MAX_TURNS=${STORYFORGE_MAX_TURNS:-200}

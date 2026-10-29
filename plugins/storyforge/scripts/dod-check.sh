@@ -8,6 +8,7 @@
 #  3. Every numbered item under plan.md "Acceptance criteria" and "Impact-driven changes" has a row with that number.
 #  4. Every area marked check or change in impact.md is named in some row.
 #  5. No CRITICAL or HIGH finding in findings.md is still open (a finding is closed by "FIXED:" on its line or the lines under it).
+#     Every agent writes findings as "- [CRITICAL|HIGH|INFO] ..."; the tags and FIXED: are matched ignoring case.
 set -uo pipefail
 ID="${1:-}"; [ -n "$ID" ] || { echo "usage: $0 <story-id>"; exit 1; }
 D="docs/stories/$ID"; ST="$D/status.md"; PL="$D/plan.md"; FI="$D/findings.md"; IM="$D/impact.md"
@@ -70,11 +71,13 @@ fi
 
 # 5. Open CRITICAL or HIGH findings.
 if [ -f "$FI" ]; then
+  # Tags and FIXED: are matched ignoring case, so "[critical]" and "[CRITICAL]" are the same finding.
   tr -d '\r' < "$FI" | awk '
     function flush() { if (open && !fixed) print "DOD FAIL: open finding: " head; open = 0; fixed = 0 }
-    /^[ \t]*-[ \t]*\[(CRITICAL|HIGH)\]/ { flush(); open = 1; fixed = 0; head = $0; if ($0 ~ /FIXED:/) fixed = 1; next }
-    /^[ \t]*-[ \t]*\[/ || /^#/ || /^[ \t]*$/ { flush(); next }
-    open && /FIXED:/ { fixed = 1 }
+    { low = tolower($0) }
+    low ~ /^[ \t]*-[ \t]*\[(critical|high)\]/ { flush(); open = 1; fixed = 0; head = $0; if (low ~ /fixed:/) fixed = 1; next }
+    low ~ /^[ \t]*-[ \t]*\[/ || /^#/ || /^[ \t]*$/ { flush(); next }
+    open && low ~ /fixed:/ { fixed = 1 }
     END { flush() }' > "$TMP/find.out"
   if [ -s "$TMP/find.out" ]; then cat "$TMP/find.out"; FAIL=1; fi
 fi
