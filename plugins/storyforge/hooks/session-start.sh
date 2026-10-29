@@ -17,6 +17,11 @@ if [ -f "$IDX" ]; then
   echo "## StoryForge project memory (index only; open files in docs/memory/ when relevant)"
   head -n 80 "$IDX"
 fi
+if [ -f "$SF_CONFIG" ]; then
+  BLANK=""
+  for K in test lint typecheck; do [ -z "$(sf_cfg "$K")" ] && BLANK="$BLANK $K"; done
+  [ -n "$BLANK" ] && echo "StoryForge WARNING: blank in storyforge.config.json:$BLANK. The gate skips a blank command, so nothing checks it. Set the real command."
+fi
 PHASE=$(sf_phase); STORY=$(cat "$SF_STATE/story" 2>/dev/null || true)
 if [ -n "$STORY" ] && [ -n "$PHASE" ] && [ "$PHASE" != done ]; then
   echo

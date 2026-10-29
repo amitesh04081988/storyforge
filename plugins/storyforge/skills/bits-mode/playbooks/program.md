@@ -29,8 +29,10 @@ For each finished PR, spawn a verifier on a different model than the one that bu
 
 ```bash
 sha=$(git -C "$path" rev-parse HEAD)
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" pr <id> <pr-number> "$sha" <verdict>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" pr <id> <pr-number> "$sha" <verdict> <builder-model> <verifier-model>
 ```
+
+Name the builder and the verifier (a model, or `manager` when you ran the gates yourself). The merge gate refuses a verdict where they are the same.
 
 Verdicts: `live-ui-verified`, `unit-test-verified`, `type-check-only`, `verifier-blocked`, `verifier-failed`. Behavior changes need better than `type-check-only`. `verifier-failed` gets a fix task, not a re-run.
 

@@ -3,7 +3,7 @@
   "owner": { "name": "YOUR_NAME" },
   "description": "Story-to-shipped autonomous pipeline for Claude Code with persistent project memory.",
   "plugins": [
-    { "name": "storyforge", "source": "./plugins/storyforge", "version": "0.10.0",
+    { "name": "storyforge", "source": "./plugins/storyforge", "version": "0.10.1",
       "description": "Project setup, product review, test-first build, multi-model review, review, security, break-it, fix loop, integration + Playwright UI tests, UML feature docs, durable memory, self-improving reflect, and PR shipping." }
   ]
 }

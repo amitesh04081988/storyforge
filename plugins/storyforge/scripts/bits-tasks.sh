@@ -3,11 +3,12 @@
 #   bits-tasks.sh add "<title>" [--deps 1,2] [--mode light|full|direct]   prints the new id
 #   bits-tasks.sh next                  ids that are todo with every dependency done (one per line)
 #   bits-tasks.sh set <id> <todo|doing|verifying|done|blocked> ["note"]
-#   bits-tasks.sh pr <id> <number> <head-sha> <verdict>   record a PR and what was verified at that head
+#   bits-tasks.sh pr <id> <number> <head-sha> <verdict> <builder> <verifier>   record a PR, what was verified at that head, and by whom
 #   bits-tasks.sh mergeable <id> <current-head-sha>       exit 0 only if the verdict covers that exact head
 #   bits-tasks.sh show                  the ledger
 #   bits-tasks.sh status                counts; exit 0 only when every task is done
-# Columns: id, status, mode, deps, title, note, pr, sha, verdict.
+# Columns: id, status, mode, deps, title, note, pr, sha, verdict, builder, verifier.
+# builder and verifier name who wrote the change and who checked it (a model, an agent, or "manager"). They must differ.
 # Verdicts that allow a merge: live-ui-verified, unit-test-verified. Anything else (type-check-only, verifier-blocked, verifier-failed) does not.
 set -uo pipefail
 F="${STORYFORGE_TASKS:-.storyforge/tasks.tsv}"
@@ -28,7 +29,7 @@ case "$CMD" in
     done
     case "$mode" in light|full|direct) ;; *) echo "mode must be light, full, or direct"; exit 1;; esac
     id=$(( $(awk -F'\t' 'END { print NR }' "$F") + 1 ))
-    printf '%s\ttodo\t%s\t%s\t%s\t-\n' "$id" "$mode" "$deps" "$title" >> "$F"
+    printf '%s\ttodo\t%s\t%s\t%s\t-\t-\t-\t-\t-\t-\n' "$id" "$mode" "$deps" "$title" >> "$F"
     echo "$id" ;;
   next)
     awk -F'\t' '
@@ -47,10 +48,10 @@ case "$CMD" in
     grep -q "^$id	" "$F" || { echo "no task $id"; exit 1; }
     awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v note="$note" '$1 == id { $2 = st; $6 = note } { print }' "$F" > "$F.tmp" && mv "$F.tmp" "$F" ;;
   pr)
-    id="${1:-}"; num="${2:-}"; sha="${3:-}"; verdict="${4:-}"
-    [ -n "$id" ] && [ -n "$num" ] && [ -n "$sha" ] && [ -n "$verdict" ] || { echo "usage: $0 pr <id> <number> <head-sha> <verdict>"; exit 1; }
+    id="${1:-}"; num="${2:-}"; sha="${3:-}"; verdict="${4:-}"; builder=$(clean "${5:-}"); verifier=$(clean "${6:-}")
+    [ -n "$id" ] && [ -n "$num" ] && [ -n "$sha" ] && [ -n "$verdict" ] && [ -n "$builder" ] && [ -n "$verifier" ] || { echo "usage: $0 pr <id> <number> <head-sha> <verdict> <builder> <verifier>"; exit 1; }
     grep -q "^$id	" "$F" || { echo "no task $id"; exit 1; }
-    awk -F'	' -v OFS='	' -v id="$id" -v n="$num" -v sha="$sha" -v v="$verdict" '$1 == id { $7 = n; $8 = sha; $9 = v } { print }' "$F" > "$F.tmp" && mv "$F.tmp" "$F" ;;
+    awk -F'	' -v OFS='	' -v id="$id" -v n="$num" -v sha="$sha" -v v="$verdict" -v b="$builder" -v w="$verifier" '$1 == id { $7 = n; $8 = sha; $9 = v; $10 = b; $11 = w } { print }' "$F" > "$F.tmp" && mv "$F.tmp" "$F" ;;
   mergeable)
     id="${1:-}"; cur="${2:-}"
     [ -n "$id" ] && [ -n "$cur" ] || { echo "usage: $0 mergeable <id> <current-head-sha>"; exit 1; }
@@ -58,7 +59,10 @@ case "$CMD" in
     sha=$(printf '%s' "$row" | cut -f8); verdict=$(printf '%s' "$row" | cut -f9)
     case "$verdict" in live-ui-verified|unit-test-verified) ;; *) echo "NOT MERGEABLE: task $id verdict is '$verdict'"; exit 1;; esac
     [ "$sha" = "$cur" ] || { echo "NOT MERGEABLE: task $id was verified at $sha but the PR head is $cur; re-verify"; exit 1; }
-    echo "mergeable: task $id verified at $sha ($verdict)" ;;
+    builder=$(printf '%s' "$row" | cut -f10); verifier=$(printf '%s' "$row" | cut -f11)
+    { [ -n "$builder" ] && [ "$builder" != "-" ] && [ -n "$verifier" ] && [ "$verifier" != "-" ]; } || { echo "NOT MERGEABLE: task $id has no builder and verifier recorded"; exit 1; }
+    [ "$builder" != "$verifier" ] || { echo "NOT MERGEABLE: task $id was verified by '$verifier', the same as the builder; use a different model or the manager's own run"; exit 1; }
+    echo "mergeable: task $id verified at $sha ($verdict) by $verifier, built by $builder" ;;
   show) column -t -s "$(printf '\t')" "$F" 2>/dev/null || cat "$F" ;;
   status)
     awk -F'\t' '{ c[$2]++; n++ }
