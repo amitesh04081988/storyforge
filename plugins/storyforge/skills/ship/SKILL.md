@@ -63,7 +63,7 @@ Each round, fetch the state with `gh pr view <n> --json mergeable,mergeStateStat
    - For bot findings on security or data, ask by default.
 
 **Stop** when:
-- Everything is green, comments are resolved, and the PR merges cleanly. Report it as ready. Never merge it yourself unless `ship.auto_merge` is true.
+- Everything is green, comments are resolved, and the PR merges cleanly. Report it as ready. Merge it yourself only when `ship.auto_merge` is true, and then only if `scripts/pr-watch.sh <pr>` prints READY just before: `gh pr merge <pr> --squash --match-head-commit <head-sha>`, where the sha is the one you verified. A refusal from `--match-head-commit` means the head moved: re-verify, never retry with the flag removed. With it false, report the PR as ready and stop.
 - 3 rounds have passed and it still isn't green. Summarize what's still broken and hand back.
 - The next fix needs a design decision. Ask.
 

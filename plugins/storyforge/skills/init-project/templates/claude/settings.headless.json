@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(node:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git worktree list:*)",
+      "Bash(bash */storyforge/scripts/*)",
+      "Bash(find ~/.claude/plugins:*)",
+      "Bash(mkdir -p .storyforge:*)",
+      "Bash(mkdir -p docs/:*)",
+      "Bash(echo * > .storyforge/*)",
+      "Bash(touch .storyforge/*)",
+      "Bash(rm -f .storyforge/*)",
+      "Bash(rm -rf .storyforge/*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git rebase:*)",
+      "Bash(git branch -D:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(sudo:*)",
+      "Bash(npm publish:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

@@ -4,6 +4,7 @@
 #   impact.sh [--depth N] --scope docs/stories/<id>/scope.txt
 # Prints the areas that own the changed paths (DIRECT), every area that depends on them,
 # directly or through other areas, up to N hops (AFFECTED), and paths no area owns (UNMAPPED).
+# An area owns its Paths and its Tests globs. docs/memory/** and docs/stories/** are ignored.
 # Exit 0 on success, 4 when there is no map yet.
 set -uo pipefail
 MAP="${STORYFORGE_DEPS:-docs/memory/DEPENDENCIES.md}"
@@ -51,8 +52,9 @@ END {
   while ((getline line < inputs) > 0) { if (line != "") in_[++nin] = line }
   for (k = 1; k <= nin; k++) {
     found = 0
+    if (in_[k] ~ /^docs\/(memory|stories)\//) continue   # memory and story bookkeeping belong to no area
     for (i = 1; i <= n; i++) {
-      m = split(paths[i], g, /[ ]*,[ ]*/)
+      m = split(paths[i] "," tests[i], g, /[ ]*,[ ]*/)
       for (j = 1; j <= m; j++) if (hit(in_[k], trim(g[j]))) { if (!(area[i] in direct)) { direct[area[i]] = 1; order[++no] = area[i]; lvl[area[i]] = 0 } found = 1; break }
     }
     if (!found) unmapped[++nu] = in_[k]

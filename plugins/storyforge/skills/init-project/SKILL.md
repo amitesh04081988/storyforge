@@ -49,6 +49,7 @@ Follow the `ui-test` skill's setup section: install Playwright if it's missing (
 ## 6. Seed memory and docs
 
 - `docs/memory/ARCHITECTURE.md`, `integrations/<name>.md` per detected service (mark unknowns `?`), and `INDEX.md`.
+- `docs/memory/FEATURES.md`: list every user-visible feature you can find from routes, screens, CLI commands, jobs, and events, with its entry points and owning paths. Mark guesses with `?` and run `scripts/feature-map.sh check`.
 - `docs/memory/DEPENDENCIES.md`: run the `impact-analysis` skill in `map` mode. It lists the areas, finds candidate edges with `scripts/dep-scan.sh`, and you confirm them against the code. Tell the user which edges are guesses.
 - Run the `feature-docs` skill in **bootstrap** mode. It writes the architecture diagram, the data model diagram, and `docs/ONBOARDING.md`.
 - Append `templates/CLAUDE.snippet.md` to `CLAUDE.md` if it isn't there yet.

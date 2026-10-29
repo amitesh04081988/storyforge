@@ -27,7 +27,7 @@ The hooks read `.storyforge/phase`; run `echo <phase> > .storyforge/phase` at th
 
 | # | Phase | Agent / skill | Writes | Done when |
 |---|-------|---------------|--------|-----------|
-| 1 | recall | `memory-keeper` (recall) | `context.md` | Relevant memory slice saved |
+| 1 | recall | `memory-keeper` (recall) | `context.md` | Relevant memory slice and feature-map rows saved |
 | 2 | product | you, with `product-review` | `product.md` | Premises, scope mode, approach agreed |
 | 3 | plan | `planner` | `plan.md`, `scope.txt` | Criteria, design, test plan, integrations, scope |
 | 3b | impact | `impact-analyst` | `impact.md`, appended `plan.md` and `scope.txt`, `DEPENDENCIES.md` | Every affected area decided (none, check, change) with evidence |
@@ -41,7 +41,7 @@ The hooks read `.storyforge/phase`; run `echo <phase> > .storyforge/phase` at th
 | 11 | ui | `ui-tester` | `e2e/*.spec.ts`, `findings.md` § UI | E2E passes on all viewports; no serious a11y violations |
 | 12 | verify | you | `status.md` § Definition of done | Gates pass on real output and every criterion has evidence |
 | 13 | docs | `doc-writer` | `docs/features/<feature>.md` (+ architecture, data model, onboarding) | Doc written from the built code |
-| 14 | remember | `memory-keeper` (update) | `docs/memory/**`, `summary.md` | Memory index and touched files updated |
+| 14 | remember | `memory-keeper` (update) | `docs/memory/**` incl. `FEATURES.md`, `summary.md` | Memory index, feature map, and touched files updated |
 | 15 | reflect | you, with `reflect` (story mode) | `reflect.md` | Improvements proposed, not applied |
 | 16 | commit | you | git commits | Bisectable commits on `story/<id>` |
 | 17 | ship | you, with `ship` | PR | Per `ship.mode` |
@@ -54,7 +54,25 @@ Every code-touching agent reads `.claude/skills/project-conventions/SKILL.md` if
 
 **Models:** each agent has a default model in its frontmatter; `models.<agent>` in the config overrides it. Pass that value as the `model` parameter when it is set. Defaults: memory-keeper, doc-writer, integration-tester and ui-tester run on `sonnet`; the rest inherit your model.
 
-Run phases 6 and 7 in parallel. Phase 8 runs after both, because the breaker attacks the gaps they found.
+### Design and polish (bits-mode skills)
+
+- **Design, in plan (3):** when the plan changes more than 3 files or crosses a module boundary, run the `architect` skill first so `plan.md` § Design carries real types and signatures; for a contested or high-risk shape, `arena`, then the `review` skill in multi-model mode. Skip with `skipped: small change` otherwise.
+- **Polish, end of develop (5) and again before commit (16):** run `deslop` on the diff, then `no-comments`, then re-run the tests. Both only remove; if tests fail, the removal was wrong.
+- **Unknown bug cause in fix (9):** `investigate` first; if the history matters, `why`. Two failed fixes on one finding means `principle-attack-the-premise`.
+- **Verify (12):** if `.claude/skills/verify/` exists, run the changed feature through it; if the repo has none and the story touches a runnable surface, suggest `create-verification-skill` in the report.
+- **Docs (13):** for state machines, retries, or concurrency, add a `statechart`; docs and PR text go through `unslop` and `technical-writing`.
+
+### Parallel agents
+
+Send every agent of one wave in a **single message** with several Agent calls, so they run at the same time. Waves, each waiting for the previous one:
+- **tests (4) and develop (5):** one `test-writer` then one `developer` per `plan.md` § Work units, up to `parallel.max_workers`. Name the unit in each prompt. Units own disjoint globs, so the guard still holds; `guard.sh snapshot` once before the wave and `guard.sh check` once after. One unit means one agent. If two units turn out to share a file, run them one after the other.
+- **review (6) and security (7):** in the same message, with the reviewers from the Review section below.
+- **break (8):** after the wave above, because the breaker attacks the gaps it found.
+- **fix (9):** group open findings by file. Disjoint groups go to parallel `developer`s in fix mode; findings that share a file go to one.
+- **integrate (10) and ui (11):** in the same message when both run.
+- **docs (13) and remember (14):** in the same message.
+
+Set `parallel.max_workers` to 1 in the config to run everything one at a time. The orchestrator alone writes `status.md`, so parallel agents never write the same file.
 
 ### Mode: light or full
 
@@ -90,7 +108,7 @@ Generated output, logs, and first-run snapshot files are not violations; changin
 
 ### Review (phase 6)
 
-If `review.models` lists more than one model, run the review skill's multi-model mode: one `reviewer` per model in a single message, then your lead judgment. Use it also for any story the plan flags as auth, payments, data, or concurrency, with `opus` and `sonnet`.
+In full mode, run the review skill's multi-model mode: one `reviewer` per model in `review.models` (default `opus` and `sonnet`) in a single message together with the security reviewer, then your lead judgment. A one-entry list means one reviewer. Any story the plan flags as auth, payments, data, or concurrency gets at least `opus` and `sonnet`.
 
 ### Severity and the fix loop (phase 9)
 
@@ -113,7 +131,7 @@ Run only if `ui.enabled` is true **and** the plan or diff touches UI files; othe
 
 Run `test`, `lint`, `typecheck`, plus `integration_test` if phase 10 ran and `e2e_test` if phase 11 ran, yourself. Read the exit codes and real output (`principle-prove-it-works`: a subagent saying "all pass" is not evidence) and paste the counts into `status.md`.
 
-Then build the matrix under `## Definition of done` in `status.md`: one row for every acceptance criterion in `plan.md` (number or label such as `AC1`), every business rule or validation the story names, and every area marked `check` or `change` in `impact.md`:
+Run `feature-map.sh check` too and read its output. Then build the matrix under `## Definition of done` in `status.md`: one row for every acceptance criterion in `plan.md` (number or label such as `AC1`), every business rule or validation the story names, and every area marked `check` or `change` in `impact.md`:
 
 | # | Criterion or rule | Evidence (test `path::name`, or command and observed output) | Result |
 |---|-------------------|----------------------------------------------------------------|--------|
@@ -143,4 +161,5 @@ Run `dod-check.sh <id>`. It checks every row has evidence and a pass, every plan
 - One story per run. If the plan is too big (about 15 files, or more than one integration), split it into stories in `plan.md` and build only the first.
 - Subagents can't call other subagents; all delegation happens here.
 - A phase that produces nothing is marked `skipped: <reason>`, not padded with invented work.
+- The feature map (`docs/memory/FEATURES.md`) is how every agent finds where a feature lives: `feature-map.sh find <word>` before planning or coding, and the keeper updates it in phase 14. Run `feature-map.sh check` in verify; a row for the story's feature that reports STALE or NO-PATHS is a HIGH finding.
 - Read `docs/memory/INDEX.md` before phase 3 if `context.md` seems thin. Don't read every memory file.

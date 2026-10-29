@@ -40,3 +40,17 @@ StoryForge reuses files from two MIT-licensed projects. Their license texts are 
 Everything else (build-story, new-project, init-project, ui-test, feature-docs, remember, break-it, security-review, the review skill body, the agents, the StoryForge hooks, and scripts) is original to StoryForge. Where a row says "merged", the skill is a new text that combines the named sources' workflows; no two StoryForge skills cover the same job.
 
 The Playwright MCP server (`@playwright/mcp`, Apache-2.0, by Microsoft) is not bundled. It's only referenced in the project `.mcp.json` template and is fetched by npx at runtime.
+
+## Added in 0.9.0 (from pstack-claude 0.9.107, MIT)
+
+Ported with `pstack:` namespaces, `poteto-mode`, `poteto-agent` and `pstack-models.md` renamed to `storyforge:`, `bits-mode`, `bits-agent` and `bits-models.md`, and the Codex, Copilot, Pi and Muse platform notes removed.
+
+| StoryForge path | Status |
+|---|---|
+| skills/{architect,arena,swarm,how,why,figure-it-out,deslop,no-comments,unslop,technical-writing,typescript-best-practices,thermo-nuclear-code-quality-review,benchmark-checklist,recall,sharpen,show-me-your-work,what-did-i-get-done,teach,ketchup,bro,in-your-own-words} | ported |
+| skills/{create-verification-skill,maintain-verification-skill,create-formal-verification-skill,maintain-formal-verification-skill,statechart} | ported; statechart without its scripts/test fixtures |
+| skills/principle-{boundary-discipline,type-system-discipline,model-the-domain,never-block-on-the-human,outcome-oriented-execution,exhaust-the-design-space,redesign-from-first-principles,foundational-thinking,separate-before-serializing-shared-state,build-the-lever,explain-the-number,experience-first,laziness-protocol} | ported |
+| agents/{comment-sicko,thermo-nuclear-code-quality-review-subagent,thermo-nuclear-review-subagent} | ported |
+| agents/bits-agent | adapted from poteto-agent |
+| skills/bits-mode/playbooks/{manager-loop,program,resume}.md, scripts/{bits-tasks,pr-watch,worktree}.sh | original; the ideas (one owner per PR, a verdict tied to the head commit, independent verification, a standing queue) come from pstack's orchestrate, autopilot, shipping and babysit playbooks, rebuilt on gh, git worktree and bash because the pstack tools need Bun |
+| skills/bits-mode, skills/setup-bits | original; modelled on poteto-mode and setup-pstack, without their playbooks and scripts |
