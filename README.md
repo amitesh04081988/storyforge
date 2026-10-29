@@ -1,21 +1,21 @@
 # StoryForge
 
-StoryForge is a Claude Code plugin that takes a **user story** and carries it to a finished, tested, reviewed, documented change. It plans, writes failing tests first, implements, reviews, attacks its own work, fixes by root cause, checks everything the change could affect, and refuses to call the story done until every acceptance criterion has evidence.
+StoryForge is a Claude Code plugin you drive with **one command: `/storyforge:bits-mode`**. Tell it what you want, in one sentence or a list. It acts as a senior manager: it splits the request into tasks, gives each to the right agent, checks every result itself, updates the feature map, dependency map and project memory, and keeps going until every task is done or genuinely blocked.
 
-For anything bigger than one story, `/storyforge:bits-mode` acts as a **manager**: it splits the request into tasks, assigns each to the right agent, verifies every result itself, updates the feature map, dependency map and memory, and repeats until all tasks are done or blocked.
+Underneath, each story runs through the `build-story` pipeline: plan, failing tests first, implement, review, security review, attack it, fix by root cause, verify against a definition of done. You rarely call that directly. `bits-mode` calls it for you, once per task, in light or full mode, in parallel when the tasks are independent.
 
 It also works across a team: stories are claimed on git branches, a story index shows who is doing what, and a dependency map tells every story what else it touches.
 
 - [Install](#install)
 - [Update an existing install](#update-an-existing-install)
 - [Quick start](#quick-start)
+- [Bits mode: the manager](#bits-mode-the-manager)
 - [How a story runs](#how-a-story-runs)
 - [Light mode for small stories](#light-mode-for-small-stories)
 - [The guard: test and scope locks](#the-guard-test-and-scope-locks)
 - [Worked example: one story, start to finish](#worked-example-one-story-start-to-finish)
 - [The dependency matrix and impact analysis](#the-dependency-matrix-and-impact-analysis)
 - [Definition of done](#definition-of-done)
-- [Bits mode: the manager](#bits-mode-the-manager)
 - [The feature map](#the-feature-map)
 - [Working as a team](#working-as-a-team)
 - [Configuration reference](#configuration-reference)
@@ -98,17 +98,23 @@ To see the new keys next to your own, compare your `storyforge.config.json` with
 
 Open `storyforge.config.json` and check that `test`, `lint`, and `typecheck` are the real commands for your project. The gates only protect you if these are right.
 
-**2. Build a story:**
+**2. Tell bits-mode what you want:**
 
 ```
-/storyforge:build-story As a customer I can export my orders as a CSV file
+/storyforge:bits-mode Add CSV export for orders, fix the login redirect bug, and update the API docs
 ```
 
-**3. Check in on it, or resume it:**
+One sentence works too. It decides what is one story and what is several, how big each is, and what order to do them in.
+
+**3. Come back to it, or resume it:**
 
 ```
-/storyforge:build-story --resume 20261027-orders-csv-export
+/storyforge:bits-mode resume
 ```
+
+It reads its task ledger, the story branches and the open PRs, and carries on from where it stopped.
+
+You can still run a single story directly with `/storyforge:build-story <story>`. That is the engine `bits-mode` uses, and it is the right tool only when you have exactly one story and want no task queue, no parallel runs and no merge gate.
 
 **Running unattended** (outside a chat, for example overnight or in a queue):
 
@@ -124,7 +130,83 @@ Unattended runs stop at anything that needs a person (plan approval, a product q
 
 ---
 
+## Bits mode: the manager
+
+`/storyforge:bits-mode <task>` is the single entry point. It restates your goal, then routes the task: a story to `build-story`, an unknown bug to `investigate` or `why`, a design choice to `architect` or `arena`, broad parallel work to `swarm`, a vague request to `sharpen`. It is modelled on pstack's `poteto-mode`, rebuilt on StoryForge's pipeline.
+
+**The manager loop** runs when the request has several tasks (`playbooks/manager-loop.md`):
+
+1. **Queue.** Each task goes into a ledger, `.storyforge/tasks.tsv`, with its dependencies and a mode: `direct` (docs, config, a one-line fix), `light` (a bug fix or small tweak: 3 files or fewer, no auth, payments, data, migration, UI or integration) or `full`.
+2. **Assign.** It takes the tasks whose dependencies are done, up to `parallel.max_workers`, and gives each to the right agent or to `build-story`.
+3. **Verify.** It runs the config's test, lint and typecheck itself and runs `dod-check.sh`. A report of "done" is not evidence.
+4. **Update.** The story's memory phase updates `FEATURES.md`, `DEPENDENCIES.md`, decisions and lessons. Light mode does this too whenever a feature's paths or a dependency changed. Then `feature-map.sh check` and `impact.sh` run on the merged branch.
+5. **Repeat** until `bits-tasks.sh status` exits 0. It stops only for a blocked task, a product decision, an irreversible action, or a pass that made no progress. A task that fails twice is blocked and you are asked.
+
+**Parallel stories** (`playbooks/program.md`) give each independent story its own `git worktree` and its own headless `claude -p` session via `run-story.sh`. A subagent cannot spawn subagents, so one session per story is how each story keeps its full set of role agents. Independent verification uses a different model from the one that built the change. A wave of more than two sessions needs your go first, because each session is a full pipeline.
+
+**The merge gate** is code, not judgment. `bits-tasks.sh pr` records what was verified and at which head commit. `bits-tasks.sh mergeable` succeeds only if the verdict is `live-ui-verified` or `unit-test-verified` and was recorded at the PR's current head. `pr-watch.sh` must also say READY (CI green, no conflicts, no review outstanding). With `ship.auto_merge` on (the default), the coordinator merges with `gh pr merge --squash --match-head-commit <sha>`, which GitHub refuses if the head moved. Story sessions are denied `gh pr merge`.
+
+`/storyforge:bits-mode resume` continues after a restart. The session-start hook lists unfinished tasks.
+
+**What it brings with it.** `bits-mode` is also the way into the skills ported from pstack: `architect`, `arena`, `swarm`, `how`, `why`, `figure-it-out`, `deslop`, `no-comments`, `unslop`, `technical-writing`, `typescript-best-practices`, `thermo-nuclear-code-quality-review`, `statechart`, `create-verification-skill`, `benchmark-checklist`, `recall`, `sharpen`, `teach` and more, plus all 23 `principle-*` skills. `/storyforge:setup-bits` writes `~/.claude/bits-models.md`, a per-role model sheet (for example `arena runners: opus, sonnet`).
+
+**Headless runs** need Bash allow rules. Start from `skills/init-project/templates/claude/settings.headless.json`: it allows the project's test commands, local git and the plugin scripts, and denies push, reset, rebase, curl and installs.
+
+### Example: two tasks, start to finish
+
+This is a real run on a small Node library called `textkit` (one function, `capitalize`). The agents ran inside one Claude Code session.
+
+```
+/storyforge:bits-mode Add slugify(text) and wordCount(text) to textkit, each exported from src/index.js and listed in the feature map
+```
+
+**1. Frame and look.** It restates the goal, then runs `feature-map.sh find slugify wordcount`. Neither exists, so both are new features.
+
+**2. Queue.** Two tasks go in the ledger, both `light` (one new function each, three files or fewer, no auth, data or UI):
+
+```
+1  light  slugify
+2  light  wordCount
+```
+
+Each gets its own git worktree. The manager compares the two plans' scopes and notices they share `src/index.js` and `FEATURES.md`.
+
+**3. Waves, two agents at a time.** Planners, then test-writers, then developers, each pair in a single message. After every wave the manager checks the work itself:
+
+| After | The manager runs | Saw |
+|---|---|---|
+| tests | `npm test` in each worktree | both fail with "module not found", the predicted reason |
+| develop | tests, lint, `feature-map.sh check`, a scope check | 12 of 12 and 11 of 11 pass, every changed file inside the plan's scope |
+
+**4. Verdicts and the merge gate.** It records `unit-test-verified` against each branch's head commit. slugify merges first. wordCount is rebased onto the result:
+
+- `FEATURES.md` merges by itself (rows are one line each, `merge=union`).
+- `src/index.js` conflicts, because both stories added an export. Both are kept.
+- The rebase changed wordCount's head commit, so the gate **refused its old verdict**: `NOT MERGEABLE: task 2 was verified at 1e0942c… but the PR head is 160e83d…; re-verify` (hashes shortened here).
+- It re-ran everything on the new head (21 of 21 tests), recorded a fresh verdict, and only then merged.
+
+**5. Result.** The ledger shows 2 of 2 done, the feature map lists all three functions, and a review run afterwards flagged one real defect: `slugify(undefined)` throws while `capitalize` returns an empty string.
+
+With `build-story` alone you would run the two stories one after another in one checkout. That is slower, and nothing would track both in one ledger, update the shared feature map between them, or hold a merge until its evidence matches the commit being merged.
+
+Not covered by this run: the variant where every story is its own headless `claude -p` session (`playbooks/program.md`). That path exists but has not been run end to end.
+
+### When to use which
+
+| You have | Use |
+|---|---|
+| A request with several tasks, a backlog, "keep going until it's all done" | `bits-mode` |
+| One story, and you want it handled completely | `bits-mode` too: it runs one task through `build-story` |
+| Independent stories you want built at the same time | `bits-mode` (one worktree and session per story, with a cost check first) |
+| Work you left half-finished, or a restart | `bits-mode resume` |
+| A bug with an unknown cause, a design question, "how does this work" | `bits-mode` routes it to `investigate`, `architect`, `how` and the other skills |
+| Exactly one story, no queue, no merge gate | `build-story` directly |
+
+---
+
 ## How a story runs
+
+_This is the engine `bits-mode` runs for each task. Use it directly only for a single story._
 
 `build-story` is the orchestrator. It never writes production code itself. It hands each phase to a specialist agent, which reads and writes files under `docs/stories/<id>/` and returns a summary of 10 lines or fewer.
 
@@ -452,30 +534,6 @@ removed new test file tests/b.test.ts
 A test-lock violation becomes a CRITICAL gate-integrity finding and the developer is sent back.
 
 **What is not a violation:** generated output and logs (`node_modules`, `dist`, `build`, `coverage`, `test-results`, `playwright-report`, `__pycache__`, `*.log`, `*.tmp`, `.claude/`), lock files such as `package-lock.json` for the scope check, and **snapshot files a test run creates for the first time** (`__snapshots__`, `*.snap`, `*-snapshots`). Add your own patterns with `guard.ignore` in the config. **Changing or deleting an existing snapshot is still a test-lock violation**, because updating a snapshot is how a failing snapshot test gets "fixed" without fixing the code. This is a check after the fact, not a block in the moment: a bad change can exist briefly, but it can't get through verify or the Stop gate.
-
----
-
-## Bits mode: the manager
-
-`/storyforge:bits-mode <task>` is the single entry point. It restates your goal, then routes the task: a story to `build-story`, an unknown bug to `investigate` or `why`, a design choice to `architect` or `arena`, broad parallel work to `swarm`, a vague request to `sharpen`. It is modelled on pstack's `poteto-mode`, rebuilt on StoryForge's pipeline.
-
-**The manager loop** runs when the request has several tasks (`playbooks/manager-loop.md`):
-
-1. **Queue.** Each task goes into a ledger, `.storyforge/tasks.tsv`, with its dependencies and a mode: `direct` (docs, config, a one-line fix), `light` (a bug fix or small tweak: 3 files or fewer, no auth, payments, data, migration, UI or integration) or `full`.
-2. **Assign.** It takes the tasks whose dependencies are done, up to `parallel.max_workers`, and gives each to the right agent or to `build-story`.
-3. **Verify.** It runs the config's test, lint and typecheck itself and runs `dod-check.sh`. A report of "done" is not evidence.
-4. **Update.** The story's memory phase updates `FEATURES.md`, `DEPENDENCIES.md`, decisions and lessons. Light mode does this too whenever a feature's paths or a dependency changed. Then `feature-map.sh check` and `impact.sh` run on the merged branch.
-5. **Repeat** until `bits-tasks.sh status` exits 0. It stops only for a blocked task, a product decision, an irreversible action, or a pass that made no progress. A task that fails twice is blocked and you are asked.
-
-**Parallel stories** (`playbooks/program.md`) give each independent story its own `git worktree` and its own headless `claude -p` session via `run-story.sh`. A subagent cannot spawn subagents, so one session per story is how each story keeps its full set of role agents. Independent verification uses a different model from the one that built the change. A wave of more than two sessions needs your go first, because each session is a full pipeline.
-
-**The merge gate** is code, not judgment. `bits-tasks.sh pr` records what was verified and at which head commit. `bits-tasks.sh mergeable` succeeds only if the verdict is `live-ui-verified` or `unit-test-verified` and was recorded at the PR's current head. `pr-watch.sh` must also say READY (CI green, no conflicts, no review outstanding). With `ship.auto_merge` on (the default), the coordinator merges with `gh pr merge --squash --match-head-commit <sha>`, which GitHub refuses if the head moved. Story sessions are denied `gh pr merge`.
-
-`/storyforge:bits-mode resume` continues after a restart. The session-start hook lists unfinished tasks.
-
-**What it brings with it.** `bits-mode` is also the way into the skills ported from pstack: `architect`, `arena`, `swarm`, `how`, `why`, `figure-it-out`, `deslop`, `no-comments`, `unslop`, `technical-writing`, `typescript-best-practices`, `thermo-nuclear-code-quality-review`, `statechart`, `create-verification-skill`, `benchmark-checklist`, `recall`, `sharpen`, `teach` and more, plus all 23 `principle-*` skills. `/storyforge:setup-bits` writes `~/.claude/bits-models.md`, a per-role model sheet (for example `arena runners: opus, sonnet`).
-
-**Headless runs** need Bash allow rules. Start from `skills/init-project/templates/claude/settings.headless.json`: it allows the project's test commands, local git and the plugin scripts, and denies push, reset, rebase, curl and installs.
 
 ---
 
