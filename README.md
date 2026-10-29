@@ -387,7 +387,7 @@ A story is done only when **all** of these hold:
 2. `findings.md` has no open CRITICAL or HIGH.
 3. `test`, `lint`, `typecheck`, plus `integration_test` and `e2e_test` when those phases ran, all exit 0. The orchestrator runs them itself; a subagent saying "all pass" isn't evidence.
 
-The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a criterion in `plan.md` has no row (numbered `1.` or labelled `AC1:`, `AC-2.`, `R3)`; ids are compared ignoring case and dashes), if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it):
+The matrix is **checked by a script, not by the model's word**. `scripts/dod-check.sh <id>` fails if any row lacks evidence or a pass, if a criterion in `plan.md` has no row (numbered `1.` or labelled `AC1:`, `AC-2.`, `R3)`; ids are compared ignoring case and dashes), if a `check` or `change` area from `impact.md` isn't named in a row, or if a CRITICAL or HIGH finding is still open (a finding is closed by `FIXED:` on its line or the line under it). Every agent, including the UI and integration testers, writes findings as `- [CRITICAL|HIGH|INFO] ...`, and the check matches the tags ignoring case:
 
 ```
 $ bash scripts/dod-check.sh 20261027-orders-csv-export

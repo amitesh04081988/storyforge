@@ -115,7 +115,7 @@ In full mode, run the review skill's multi-model mode: one `reviewer` per model 
 **CRITICAL:** wrong behavior, data loss, a security hole, or a weakened test. **HIGH:** a real defect a user or caller can hit (missed criterion, unhandled failure path, broken validation or business rule). Both must be fixed. **INFO:** style and optional hardening; may be deferred.
 
 The loop is what makes this autonomous, and its exit conditions make it safe:
-1. Collect every open CRITICAL and HIGH finding, failing test, critical or high UI issue, and NEEDS INPUT item the developer can resolve without a product decision.
+1. Collect every open CRITICAL and HIGH finding (from every phase, including UI and integration), failing test, and NEEDS INPUT item the developer can resolve without a product decision.
 2. `guard.sh snapshot`, then call `developer` in fix mode with `findings.md` and the failing test names. It must use the `investigate` skill: root cause first.
 3. If the developer needs a file outside `scope.txt` and it is justified, add its glob (or `touch .storyforge/allow-scope-edit` for one cycle) and record it in `plan.md` § Deviations.
 4. Re-run only what the fix could affect: review and security on changed files, the breaker's regression tests, the UI specs if a UI issue was fixed.
