@@ -21,7 +21,9 @@ IFS='|' read -r state mergeable review sha failing pending count names <<< "$OUT
 
 ci=pass; [ "$pending" != 0 ] && ci=pending; [ "$failing" != 0 ] && ci=fail
 [ "${count:-0}" = 0 ] && ci=not-configured
-if [ -n "${STORYFORGE_REQUIRED_CHECKS:-}" ]; then
+if [ -z "${STORYFORGE_REQUIRED_CHECKS:-}" ]; then
+  ci=missing-policy
+else
   IFS=',' read -ra required <<< "$STORYFORGE_REQUIRED_CHECKS"
   for needed in "${required[@]}"; do
     case ",$names," in *,"$needed",*) ;; *) ci=missing-required;; esac

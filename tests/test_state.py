@@ -96,4 +96,22 @@ class StateTests(unittest.TestCase):
         self.assertEqual(r.returncode,0,r.stdout+"\n"+r.stderr)
         self.cmd("attest",task);self.cmd("set",task,"done")
 
+
+    def test_repair_budget_stops_repeated_attempts(self):
+        task=self.cmd("add","Repeated","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing")
+        for _ in range(2):
+            self.cmd("set",task,"verifying")
+            self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        self.cmd("set",task,"doing",success=False)
+
+    def test_migrate_legacy_invalidates_unverified_done(self):
+        legacy=self.cwd/"legacy.tsv"
+        legacy.write_text("1\tdone\tlight\t-\tLegacy task\t-\t-\t-\t-\t-\t-\n")
+        self.cmd("migrate-legacy",str(legacy))
+        self.assertIn("blocked",self.cmd("show").stdout)
+        self.cmd("status",success=False)
+        self.cmd("migrate-legacy",str(legacy),success=False)
+
 if __name__=="__main__":unittest.main()
