@@ -24,6 +24,16 @@ For any request with more than one task, you act as the senior manager: assign e
 - Resuming after a restart or pausing: `playbooks/resume.md`.
 - A single story, or one contained edit, needs no ledger: use the router.
 
+## Deterministic safety and goal contract
+
+- Assess risk before planning, after the plan and after the actual diff. One-file auth, permissions, security, payment, privacy, production migration, concurrency or privileged config changes always require `full` / strict behavior.
+- For a coding task, define observable acceptance criteria and required checks before declaring a result. The manager may propose implementation; only executed checks may provide PASS evidence.
+- Never mark a task `done` when a required gate is absent or failing, the current revision differs from the verified revision, or an approval is missing.
+- Follow bounded manager, fix and PR loops: declare success predicates, attempt budgets, no-progress behavior and non-success exits (BLOCKED, FAILED, INTERRUPTED, BUDGET_EXHAUSTED).
+- Never create a fix task depending on a blocked task being `done`; repair the original task and reverify it.
+- Time-based `/loop` and proactive `/schedule` are optional Claude Code integrations, not built into StoryForge. Never turn on recurring monitoring without separate authorization.
+- `ship.auto_merge` defaults to `false`. Even when enabled, require actual green named CI checks, independent SHA-bound verification and authorized merge permissions.
+
 ## Router
 
 | The task is | Go to |

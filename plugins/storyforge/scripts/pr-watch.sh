@@ -15,15 +15,22 @@ command -v gh >/dev/null || { echo "gh CLI not found"; exit 4; }
 JQ='[.statusCheckRollup[]? | (.conclusion // .state // "")] as $c
  | [ .state, (.mergeable | if . == null or . == "" then "UNKNOWN" else . end), (.reviewDecision | if . == null or . == "" then "NONE" else . end), .headRefOid,
      ([$c[] | select(. == "FAILURE" or . == "TIMED_OUT" or . == "CANCELLED" or . == "ERROR" or . == "ACTION_REQUIRED")] | length | tostring),
-     ([$c[] | select(. == "" or . == "PENDING" or . == "QUEUED" or . == "IN_PROGRESS" or . == "EXPECTED")] | length | tostring) ] | join("|")'
+     ([$c[] | select(. == "" or . == "PENDING" or . == "QUEUED" or . == "IN_PROGRESS" or . == "EXPECTED")] | length | tostring), (.statusCheckRollup | length | tostring), ([.statusCheckRollup[]? | (.name // .context // "")] | join(",")) ] | join("|")'
 OUT=$(gh pr view "$PR" "${REPO[@]}" --json state,mergeable,reviewDecision,headRefOid,statusCheckRollup --jq "$JQ" 2>&1) || { echo "gh failed: $OUT"; exit 4; }
-IFS='|' read -r state mergeable review sha failing pending <<< "$OUT"
+IFS='|' read -r state mergeable review sha failing pending count names <<< "$OUT"
 
 ci=pass; [ "$pending" != 0 ] && ci=pending; [ "$failing" != 0 ] && ci=fail
+[ "${count:-0}" = 0 ] && ci=not-configured
+if [ -n "${STORYFORGE_REQUIRED_CHECKS:-}" ]; then
+  IFS=',' read -ra required <<< "$STORYFORGE_REQUIRED_CHECKS"
+  for needed in "${required[@]}"; do
+    case ",$names," in *,"$needed",*) ;; *) ci=missing-required;; esac
+  done
+fi
 verdict=READY; code=0
 if [ "$state" != OPEN ]; then verdict=CLOSED; code=3
 elif [ "$ci" = fail ] || [ "$mergeable" = CONFLICTING ] || [ "$review" = CHANGES_REQUESTED ]; then verdict=ACT; code=2
-elif [ "$ci" = pending ] || [ "$mergeable" = UNKNOWN ] || [ "$review" = REVIEW_REQUIRED ]; then verdict=WAIT; code=1
+elif [ "$ci" != pass ] || [ "$mergeable" = UNKNOWN ] || [ "$review" = REVIEW_REQUIRED ]; then verdict=WAIT; code=1
 fi
 echo "PR $PR head=$sha state=$state ci=$ci mergeable=$mergeable review=$review -> $verdict"
 exit $code
