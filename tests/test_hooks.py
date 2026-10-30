@@ -34,7 +34,7 @@ class GateSafetyTests(unittest.TestCase):
     def test_missing_test_command_blocks_even_when_lint_passes(self):
         result = self.run_hook("stop-gate.sh")
         self.assertEqual(result.returncode, 0)
-        self.assertIn('"decision":"block"', result.stdout)
+        self.assertEqual(json.loads(result.stdout)["decision"], "block")
         self.assertIn("required command missing", result.stdout)
 
     def test_stop_hook_exhaustion_does_not_claim_success(self):
