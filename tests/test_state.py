@@ -21,6 +21,7 @@ class StateTests(unittest.TestCase):
         self.exec(["git","config","user.email","test@example.invalid"])
         self.exec(["git","config","user.name","Test"])
         (self.cwd/"storyforge.config.json").write_text(json.dumps({"test":"true","lint":"true","typecheck":"true"}))
+        (self.cwd/".gitignore").write_text("state.sqlite*\n.storyforge/\n")
         (self.cwd/"initial.txt").write_text("one")
         self.exec(["git","add","."])
         self.exec(["git","commit","-qm","init"])

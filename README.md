@@ -91,6 +91,25 @@ worktrees for independent stories, and create reviewable PRs.
 
 The manager uses a local task ledger and scoped worktrees. Parallel headless stories remain a pilot feature until end-to-end integration tests establish reliability.
 
+
+### Durable state and deterministic verification (new)
+
+The command `bits-tasks.sh` now uses SQLite (`.storyforge/tasks.sqlite`) for transactional task claims, event history and SHA/config-bound gate records. This **is a breaking change for old local TSV ledgers**; export/reconcile existing `.storyforge/tasks.tsv` before enabling the SQLite workflow. A task cannot be marked DONE on an agent's word alone.
+
+```bash
+# Run from a trusted application repository after StoryForge installation
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" add "Implement search" --mode light
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" claim --limit 1
+# After implementation, commit the change and record distinct identities:
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" identity 1 builder-agent verifier-agent
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" set 1 verifying
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verify-run.py" 1 --verifier verifier-agent
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" attest 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" set 1 done
+```
+
+For full-mode tasks, independent `review` and `security` gates are also mandatory. The local verifier cannot automatically prove these; their evidence must be recorded by the appropriate independent verification workflow. Missing gates block attestation. Working-tree changes must be committed before SHA-based verification; this keeps verification reproducible.
+
 ## Loop engineering: what is supported?
 
 ```mermaid
@@ -176,7 +195,7 @@ The same steps are available inside Claude Code from the `/plugin` menu: update 
 | 0.7 | Fail-closed hooks, guard, scripted done check, model tiering, light mode | Make sure `python3`, `python` or `py -3` runs in your shell (see [Troubleshooting](#troubleshooting)). Optionally add `models`, `light_mode` and `guard.ignore` to the config (defaults apply when absent) |
 | 0.8 | Feature map and parallel agents | New `docs/memory/FEATURES.md` (the sitemap of features: entry points, paths, docs, tests); `feature-map.sh list/find/check`. Re-run `/storyforge:init-project` to create it. Plans now split into work units that run as parallel agents, and full-mode review runs `opus` and `sonnet` side by side. `parallel.max_workers: 1` restores one-at-a-time
 | 0.9 | `bits-mode` router and 40 more skills | New: `/storyforge:bits-mode` picks the right skill for a task. Added `architect`, `arena`, `swarm`, `how`, `why`, `figure-it-out`, `deslop`, `no-comments`, `unslop`, `statechart`, `create-verification-skill`, `benchmark-checklist`, 13 more principles and others. `/storyforge:setup-bits` writes `~/.claude/bits-models.md`. Nothing to migrate
-| 0.10 | Manager loop and parallel programs | `/storyforge:bits-mode` now runs a task ledger (`.storyforge/tasks.tsv`): it assigns each task, verifies it, updates the feature map, dependency map and memory, and repeats until all are done or blocked. Minor tasks take light mode. Independent stories run in parallel, one `git worktree` and one headless session each, and a PR is mergeable only when its verdict was recorded at its current head commit. Needs `gh` and, for parallel stories, the `claude` CLI. Nothing to migrate
+| 0.10 | Manager loop and parallel programs | `/storyforge:bits-mode` now runs a task ledger (`.storyforge/tasks.sqlite`): it assigns each task, verifies it, updates the feature map, dependency map and memory, and repeats until all are done or blocked. Minor tasks take light mode. Independent stories run in parallel, one `git worktree` and one headless session each, and a PR is mergeable only when its verdict was recorded at its current head commit. Needs `gh` and, for parallel stories, the `claude` CLI. Nothing to migrate
 | 0.10.1 | Merge gate names its verifier | `bits-tasks.sh pr` now takes two more arguments, `<builder> <verifier>`, and `mergeable` refuses a verdict where they match or are missing. Rows recorded before this have neither, so re-record them. A blank `test`, `lint` or `typecheck` now triggers a warning at session start
 
 To see the new keys next to your own, compare your `storyforge.config.json` with `plugins/storyforge/skills/init-project/templates/storyforge.config.json` in this repository, or run `/storyforge:init-project` again. Re-running it on a set-up project refreshes detection and docs and only adds to memory, never overwrites it.
@@ -234,7 +253,7 @@ Unattended runs stop at anything that needs a person (plan approval, a product q
 
 **The manager loop** runs when the request has several tasks (`playbooks/manager-loop.md`):
 
-1. **Queue.** Each task goes into a ledger, `.storyforge/tasks.tsv`, with its dependencies and a mode: `direct` (docs, config, a one-line fix), `light` (a bug fix or small tweak: 3 files or fewer, no auth, payments, data, migration, UI or integration) or `full`.
+1. **Queue.** Each task goes into a ledger, `.storyforge/tasks.sqlite`, with its dependencies and a mode: `direct` (docs, config, a one-line fix), `light` (a bug fix or small tweak: 3 files or fewer, no auth, payments, data, migration, UI or integration) or `full`.
 2. **Assign.** It takes the tasks whose dependencies are done, up to `parallel.max_workers`, and gives each to the right agent or to `build-story`.
 3. **Verify.** It runs the config's test, lint and typecheck itself and runs `dod-check.sh`. A report of "done" is not evidence.
 4. **Update.** The story's memory phase updates `FEATURES.md`, `DEPENDENCIES.md`, decisions and lessons. Light mode does this too whenever a feature's paths or a dependency changed. Then `feature-map.sh check` and `impact.sh` run on the merged branch.
@@ -718,12 +737,12 @@ They only see stories pushed to the shared remote, so developers on forks or wor
 | `docs.level` | `light` | How much documentation to write |
 | `product_review` | `auto` | `auto` (new capabilities only), `always`, or `off` |
 | `review.models` | `["opus","sonnet"]` | Full mode runs one reviewer per model in parallel; light mode always uses one |
-| `parallel.max_workers` | `3` | Most agents launched at once per wave (work units, fix groups). `1` runs everything one at a time |
+| `parallel.max_workers` | `1` | Most agents launched at once per wave (work units, fix groups). `1` runs everything one at a time |
 | `scope_lock` | `true` | Block edits outside `scope.txt` during develop and fix |
 | `reflect.after_each_story` | `true` | Propose process improvements after each story |
 | `reflect.retro_every_n_stories` | `10` | When to suggest a retro |
 | `ship.mode` | `commit` | `commit`, `pr`, or `pr-babysit` (opens the PR and fixes CI and review comments) |
-| `ship.auto_merge` | `true` | The orchestrator merges a PR itself, but only when `pr-watch.sh` says READY (CI green, no conflicts, no review outstanding) and, in a bits-mode run, `bits-tasks.sh mergeable` confirms the verdict covers the exact head commit. It merges with `gh pr merge --squash --match-head-commit <sha>`, so a head that moved after verification is refused. Set `false` to merge by hand |
+| `ship.auto_merge` | `false` | The orchestrator merges a PR itself, but only when `pr-watch.sh` says READY (CI green, no conflicts, no review outstanding) and, in a bits-mode run, `bits-tasks.sh mergeable` confirms the verdict covers the exact head commit. It merges with `gh pr merge --squash --match-head-commit <sha>`, so a head that moved after verification is refused. Set `false` to merge by hand |
 | `impact.enabled` | `true` | Run the impact phase |
 | `impact.max_depth` | `3` | How many hops of dependents to follow |
 | `claim.push_early` | `true` | Push the story branch after planning so others see the claim |
