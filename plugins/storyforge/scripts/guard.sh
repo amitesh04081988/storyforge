@@ -38,7 +38,7 @@ copies = os.path.join(state, "baseline")
 
 IGNORE = ["**/node_modules/**", "**/__pycache__/**", "*.pyc", "*.log", "*.tmp", "**/.DS_Store",
           "**/dist/**", "**/build/**", "**/coverage/**", "**/.next/**", "**/target/**",
-          "**/test-results/**", "**/playwright-report/**", "**/.pytest_cache/**", ".claude/**"] + extra_ignore.splitlines()
+          "**/test-results/**", "**/playwright-report/**", "**/.pytest_cache/**"] + extra_ignore.splitlines()
 SNAPSHOTS = ["**/__snapshots__/**", "*.snap", "**/*-snapshots/**"]
 
 def m(p, g):
@@ -53,7 +53,7 @@ def is_snapshot(p): return any(m(p, g) for g in SNAPSHOTS)
 def files():
     out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"], capture_output=True).stdout
     return sorted(x for x in out.decode("utf-8", "replace").split("\0")
-                  if x and not x.startswith(".storyforge/") and not is_ignored(x) and os.path.isfile(x))
+                  if x and not x.startswith(".storyforge/") and not is_ignored(x) and (os.path.isfile(x) or os.path.islink(x)))
 
 def hashes(paths):
     if not paths: return {}
@@ -93,6 +93,15 @@ if mode == "restore":
 
 # check
 problems = []
+PROTECTED=[".claude/**",".github/workflows/**","storyforge.config.json",
+           "plugins/storyforge/hooks/**","plugins/storyforge/scripts/**"]
+for p in changed:
+    if not allow_scope and any(m(p,g) for g in PROTECTED):
+        problems.append(f"POLICY     {p} requires explicit approval")
+    if p in cur and os.path.islink(p):
+        base_dir=os.path.realpath(root); target=os.path.realpath(p)
+        if os.path.commonpath((base_dir,target))!=base_dir:
+            problems.append(f"ESCAPE     {p} points outside workspace")
 if not allow_test:
     for p in test_changed:
         problems.append(f"TEST-LOCK  {p} was {'removed' if p not in cur else 'added' if p not in base else 'modified'} since the snapshot. Test files are locked; run guard.sh restore, then fix the production code.")

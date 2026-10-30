@@ -70,6 +70,24 @@
   "max_fix_cycles": 4,
   "max_stop_blocks": 3,
   "parallel": {
-    "max_workers": 3
+    "max_workers": 1
+  },
+  "bits_mode": {
+    "default_mode": "auto",
+    "risk_policy": "enforce-minimum-mode",
+    "max_task_retries": 2,
+    "require_evidence_for_done": true,
+    "require_independent_verification": true,
+    "missing_required_check": "block",
+    "goal_loop": {
+      "max_attempts": 4,
+      "no_progress_passes": 1,
+      "max_runtime_minutes": 90
+    },
+    "external_triggers": {
+      "enabled": false,
+      "require_explicit_opt_in": true
+    },
+    "report_cost_when_available": true
   }
 }

@@ -1,0 +1,189 @@
+"""Durable Bits-Mode state, dependency, evidence and recovery regression tests."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import unittest
+
+SRC=Path(__file__).resolve().parents[1]/"plugins/storyforge/scripts/bits-state.py"
+VERIFY=SRC.parent/"verify-run.py"
+
+class StateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.cwd=Path(self.temp.name)
+        self.env=dict(os.environ,STORYFORGE_DB=str(self.cwd/"state.sqlite"))
+        self.exec(["git","init","-q"])
+        self.exec(["git","config","user.email","test@example.invalid"])
+        self.exec(["git","config","user.name","Test"])
+        (self.cwd/"storyforge.config.json").write_text(json.dumps({"test":"true","lint":"true","typecheck":"true"}))
+        (self.cwd/".gitignore").write_text("state.sqlite*\n.storyforge/\n")
+        (self.cwd/"initial.txt").write_text("one")
+        self.exec(["git","add","."])
+        self.exec(["git","commit","-qm","init"])
+    def exec(self,cmd):
+        r=subprocess.run(cmd,cwd=self.cwd,env=self.env,text=True,capture_output=True)
+        self.assertEqual(r.returncode,0,r.stderr)
+        return r.stdout.strip()
+    def cmd(self,*args,success=True):
+        r=subprocess.run([sys.executable,str(SRC),*map(str,args)],cwd=self.cwd,env=self.env,text=True,capture_output=True)
+        if success:self.assertEqual(r.returncode,0,r.stderr)
+        else:self.assertNotEqual(r.returncode,0,r.stdout)
+        return r
+    def context(self):
+        sha=self.exec(["git","rev-parse","HEAD"])
+        base=sha
+        cfg=hashlib.sha256((self.cwd/"storyforge.config.json").read_bytes()).hexdigest()
+        return sha,base,cfg
+    def test_missing_evidence_prevents_done(self):
+        task=self.cmd("add","Add endpoint","--mode","full").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("identity",task,"builder","verifier")
+        self.cmd("set",task,"verifying")
+        self.cmd("set",task,"done",success=False)
+        self.cmd("attest",task,success=False)
+    def test_atomic_claim_and_dependency(self):
+        one=self.cmd("add","First","--mode","direct").stdout.strip()
+        two=self.cmd("add","Second","--deps",one,"--mode","direct").stdout.strip()
+        self.assertEqual(self.cmd("next").stdout.strip(),one)
+        self.assertEqual(self.cmd("claim","--limit","2").stdout.strip(),one)
+        self.assertEqual(self.cmd("claim","--limit","2").stdout.strip(),"")
+        self.cmd("set",one,"verifying")
+        self.cmd("set",one,"done",success=False)
+        self.assertEqual(self.cmd("next").stdout.strip(),"")
+        self.cmd("add","Bad","--deps","999",success=False)
+    def test_evidence_bound_to_sha_config_and_verifier(self):
+        task=self.cmd("add","Feature","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("identity",task,"builder","verifier")
+        self.cmd("set",task,"verifying")
+        sha,base,cfg=self.context()
+        for gate in ("test","lint","typecheck"):
+            self.cmd("evidence",task,gate,"PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier","--source","verify-run")
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),sha)
+        self.cmd("set",task,"done")
+        self.assertIn("GOAL_VERIFIED",self.cmd("status").stdout)
+    def test_repair_and_interruption(self):
+        task=self.cmd("add","Repairable","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        self.cmd("set",task,"doing")
+        self.cmd("recover")
+        self.cmd("set",task,"doing")
+        self.cmd("set",task,"blocked")
+        self.assertNotIn(task,self.cmd("next").stdout)
+    def test_same_builder_verifier_rejected(self):
+        task=self.cmd("add","Risky","--mode","full").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("identity",task,"same","same",success=False)
+    def test_config_invalidation(self):
+        task=self.cmd("add","Docs","--mode","direct").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        sha,base,cfg=self.context()
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","reviewer","--source","verify-run")
+        self.cmd("attest",task)
+        (self.cwd/"storyforge.config.json").write_text(json.dumps({"test":"false"}))
+        self.cmd("set",task,"done",success=False)
+    def test_verification_runner(self):
+        task=self.cmd("add","Unit","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        r=subprocess.run([sys.executable,str(VERIFY),task,"--verifier","verifier"],cwd=self.cwd,env=self.env,capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stdout+"\n"+r.stderr)
+        self.cmd("attest",task);self.cmd("set",task,"done")
+
+
+    def test_legacy_dependency_cycle_refused(self):
+        legacy=self.cwd/"legacy-cycle.tsv"
+        legacy.write_text(
+            "1\ttodo\tlight\t2\tFirst\t-\t-\t-\t-\t-\t-\n"
+            "2\ttodo\tlight\t1\tSecond\t-\t-\t-\t-\t-\t-\n"
+        )
+        self.cmd("migrate-legacy",str(legacy),success=False)
+        self.assertNotIn("First",self.cmd("show").stdout)
+
+    def test_invalid_claim_limit_rejected(self):
+        self.cmd("claim","--limit","-1",success=False)
+
+    def test_repair_budget_stops_repeated_attempts(self):
+        task=self.cmd("add","Repeated","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing")
+        for _ in range(2):
+            self.cmd("set",task,"verifying")
+            self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        self.cmd("set",task,"doing",success=False)
+
+    def test_configured_base_branch_controls_attestation(self):
+        initial=self.exec(["git","rev-parse","HEAD"])
+        self.exec(["git","update-ref","refs/remotes/origin/release",initial])
+        cfg=json.loads((self.cwd/"storyforge.config.json").read_text())
+        cfg["base_branch"]="release"
+        (self.cwd/"storyforge.config.json").write_text(json.dumps(cfg))
+        (self.cwd/"initial.txt").write_text("two")
+        self.exec(["git","add","."])
+        self.exec(["git","commit","-qm","update application"])
+        head=self.exec(["git","rev-parse","HEAD"])
+        self.assertNotEqual(initial,head)
+        task=self.cmd("add","Release branch proof","--mode","direct").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        digest=hashlib.sha256((self.cwd/"storyforge.config.json").read_bytes()).hexdigest()
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0",
+                 "--sha",head,"--base",head,"--config",digest,"--verifier","reviewer","--source","verify-run")
+        self.cmd("attest",task,success=False)
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0",
+                 "--sha",head,"--base",initial,"--config",digest,"--verifier","reviewer","--source","verify-run")
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),head)
+
+    def test_migrate_legacy_invalidates_unverified_done(self):
+        legacy=self.cwd/"legacy.tsv"
+        legacy.write_text("1\tdone\tlight\t-\tLegacy task\t-\t-\t-\t-\t-\t-\n")
+        self.cmd("migrate-legacy",str(legacy))
+        self.assertIn("blocked",self.cmd("show").stdout)
+        self.cmd("status",success=False)
+        self.cmd("migrate-legacy",str(legacy),success=False)
+
+    def test_manual_evidence_cannot_satisfy_executed_gates(self):
+        task=self.cmd("add","Forged","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        sha,_,cfg=self.context()
+        base=self.cmd("base").stdout.strip()
+        for gate in ("test","lint","typecheck"):
+            self.cmd("evidence",task,gate,"PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier")
+        r=self.cmd("attest",task,success=False)
+        self.assertIn("verify-run",r.stderr)
+    def test_review_gate_is_an_attestation_not_an_execution(self):
+        task=self.cmd("add","Reviewed","--mode","full","--required","review").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        sha,_,cfg=self.context();base=self.cmd("base").stdout.strip()
+        self.cmd("evidence",task,"review","PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier")
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),sha)
+    def test_verifier_and_ledger_agree_on_base_branch_without_origin(self):
+        self.exec(["git","branch","-M","main"])
+        self.exec(["git","checkout","-qb","feature"])
+        (self.cwd/"work.txt").write_text("work");self.exec(["git","add","."]);self.exec(["git","commit","-qm","work"])
+        task=self.cmd("add","Feature","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        r=subprocess.run([sys.executable,str(VERIFY),task,"--verifier","verifier"],cwd=self.cwd,env=self.env,capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stdout+"\n"+r.stderr)
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),self.exec(["git","rev-parse","HEAD"]))
+        self.cmd("set",task,"done")
+    def test_legacy_ledgers_from_earlier_versions_import(self):
+        for columns in (6,9,11):
+            legacy=self.cwd/("legacy%d.tsv"%columns)
+            row=["1","done","light","-","Old task","ok","41","abc","unit-test-verified","sonnet","opus"][:columns]
+            legacy.write_text("\t".join(row)+"\n")
+            self.env["STORYFORGE_DB"]=str(self.cwd/("legacy%d.sqlite"%columns))
+            self.cmd("migrate-legacy",str(legacy))
+            self.assertIn("Old task",self.cmd("show").stdout)
+    def test_claim_limit_counts_claimed_tasks_not_skipped_ones(self):
+        for title in ("A","B","C"):self.cmd("add",title,"--mode","direct")
+        db=sqlite3.connect(self.env["STORYFORGE_DB"]);db.execute("UPDATE tasks SET attempts=3 WHERE id=1");db.commit();db.close()
+        self.assertEqual(self.cmd("claim","--limit","1").stdout.strip(),"2")
+
+if __name__=="__main__":unittest.main()

@@ -24,6 +24,26 @@ For any request with more than one task, you act as the senior manager: assign e
 - Resuming after a restart or pausing: `playbooks/resume.md`.
 - A single story, or one contained edit, needs no ledger: use the router.
 
+## Deterministic safety and goal contract
+
+- Assess risk before planning, after the plan and after the actual diff. One-file auth, permissions, security, payment, privacy, production migration, concurrency or privileged config changes always require `full` / strict behavior.
+- For a coding task, define observable acceptance criteria and required checks before declaring a result. The manager may propose implementation; only executed checks may provide PASS evidence. Use `bits-tasks.sh identity`, `verify-run.py`, `bits-tasks.sh attest`, and `set done` to enforce this on a clean commit.
+- Never mark a task `done` when a required gate is absent or failing, the current revision differs from the verified revision, or an approval is missing.
+- Follow bounded manager, fix and PR loops: declare success predicates, attempt budgets, no-progress behavior and non-success exits (BLOCKED, FAILED, INTERRUPTED, BUDGET_EXHAUSTED).
+- Never create a fix task depending on a blocked task being `done`; repair the original task and reverify it.
+- Time-based `/loop` and proactive `/schedule` are optional Claude Code integrations, not built into StoryForge. Never turn on recurring monitoring without separate authorization.
+- `ship.auto_merge` defaults to `true` for new projects. Merge only when `pr-watch.sh` says READY (named CI checks present and passing), the task has independent SHA-bound verification, and you use `--match-head-commit`. Set it to `false` to merge by hand.
+
+## Risk classifier
+
+Before routing and after changing the planned file scope, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" policy "<user request>" --path "<changed file>" --requested auto
+```
+
+Treat the returned minimum `strict` as mandatory. Unknown potentially sensitive files require full risk review. Do not infer low risk from low file count. Re-run when scope changes.
+
 ## Router
 
 | The task is | Go to |

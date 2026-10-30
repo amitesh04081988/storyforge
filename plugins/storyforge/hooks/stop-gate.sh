@@ -25,28 +25,34 @@ if [ -z "$SF_PY" ]; then
   exit 0
 fi
 
-TEST=$(sf_cfg test "")
 REPORT=""; FAILED=0
-
-if [ -n "$TEST" ]; then
-  CMD="$TEST"
-  if [ "$PHASE" != ui ]; then
-    for K in lint typecheck; do
-      C=$(sf_cfg "$K" ""); [ -n "$C" ] && CMD="$CMD && $C"
-    done
+run_gate() {
+  local name="$1" required="$2" cmd output rc
+  cmd=$(sf_cfg "$name" "")
+  if [ -z "$cmd" ]; then
+    if [ "$required" = true ]; then
+      FAILED=1; REPORT="$REPORT
+$name: BLOCKED (required command missing)"
+    fi
+    return
   fi
-  if [ "$PHASE" = integrate ] || [ "$PHASE" = verify ]; then
-    IT=$(sf_cfg integration_test ""); [ -n "$IT" ] && CMD="$CMD && $IT"
+  output=$(cd "$SF_PROJECT" && bash -c "$cmd" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAILED=1; REPORT="$REPORT
+$name: FAIL (exit $rc)
+$(printf '%s\n' "$output" | tail -40)"
   fi
-  if [ "$PHASE" = ui ] || { [ "$PHASE" = verify ] && [ "$(sf_cfg ui.enabled false)" = true ] && [ -f "$SF_STATE/ui-ran" ]; }; then
-    E2E=$(sf_cfg e2e_test ""); [ -n "$E2E" ] && CMD="$CMD && $E2E"
-  fi
-  OUT=$(cd "$SF_PROJECT" && bash -c "$CMD" 2>&1); RC=$?
-  if [ $RC -ne 0 ]; then
-    FAILED=1
-    REPORT="tests, lint, or typecheck are failing (exit $RC). Fix by root cause; do not weaken tests. Last output:
-$(printf '%s\n' "$OUT" | grep -v '^\s*$' | tail -40)"
-  fi
+}
+run_gate test true
+if [ "$PHASE" != ui ]; then
+  run_gate lint true
+  run_gate typecheck true
+fi
+if [ "$PHASE" = integrate ] || [ "$PHASE" = verify ]; then
+  [ -f "$SF_STATE/integration-ran" ] && run_gate integration_test true
+fi
+if [ "$PHASE" = ui ] || { [ "$PHASE" = verify ] && [ -f "$SF_STATE/ui-ran" ]; }; then
+  run_gate e2e_test true
 fi
 
 if [ "$PHASE" = develop ] || [ "$PHASE" = fix ]; then
@@ -64,12 +70,13 @@ $DOUT"; fi
   fi
 fi
 
-if [ $FAILED -eq 0 ]; then echo 0 > "$SF_STATE/stop-blocks"; exit 0; fi
+if [ $FAILED -eq 0 ]; then echo 0 > "$SF_STATE/stop-blocks"; rm -f "$SF_STATE/gate-blocked"; exit 0; fi
 
 MAX=$(sf_cfg max_stop_blocks 3)
 echo $N > "$SF_STATE/stop-blocks"
 if [ "$N" -gt "$MAX" ]; then
-  echo "[storyforge] Checks still failing after $MAX blocked stops; letting the session end. Record what is open under ## Blocked in status.md." >&2
+  printf "gate-blocked: %s\n" "$REPORT" > "$SF_STATE/gate-blocked"
+  echo "[storyforge] BLOCKED after $MAX attempts (session may stop but task cannot pass): $REPORT" >&2
   exit 0
 fi
 # shellcheck disable=SC2086
