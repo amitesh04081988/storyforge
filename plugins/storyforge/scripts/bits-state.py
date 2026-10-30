@@ -27,7 +27,22 @@ def current():
     if not SHA.fullmatch(s):raise ValueError("git HEAD unavailable")
     if gp("status","--porcelain"):raise ValueError("working tree dirty; commit and reverify")
     return s
-def base():return gp("rev-parse","refs/remotes/origin/main") or gp("rev-parse","HEAD")
+def base():
+    """Resolve the configured base branch, not a hard-coded origin/main."""
+    p=Path("storyforge.config.json")
+    config=json.loads(p.read_text()) if p.exists() else {}
+    name=config.get("base_branch","main")
+    if (not isinstance(name,str) or
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*",name) or
+        ".." in name or name.endswith("/")):
+        raise ValueError("invalid configured base_branch")
+    for ref in ("refs/remotes/origin/"+name,"refs/heads/"+name):
+        revision=gp("rev-parse","--verify",ref)
+        if SHA.fullmatch(revision):return revision
+    if gp("remote"):
+        raise ValueError("configured base branch unavailable; fetch origin/"+name)
+    return gp("rev-parse","HEAD")
+
 def conf():
     p=Path("storyforge.config.json")
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else "no-config"

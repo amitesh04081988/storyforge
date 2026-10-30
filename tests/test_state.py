@@ -118,6 +118,28 @@ class StateTests(unittest.TestCase):
         self.cmd("set",task,"verifying")
         self.cmd("set",task,"doing",success=False)
 
+    def test_configured_base_branch_controls_attestation(self):
+        initial=self.exec(["git","rev-parse","HEAD"])
+        self.exec(["git","update-ref","refs/remotes/origin/release",initial])
+        cfg=json.loads((self.cwd/"storyforge.config.json").read_text())
+        cfg["base_branch"]="release"
+        (self.cwd/"storyforge.config.json").write_text(json.dumps(cfg))
+        (self.cwd/"initial.txt").write_text("two")
+        self.exec(["git","add","."])
+        self.exec(["git","commit","-qm","update application"])
+        head=self.exec(["git","rev-parse","HEAD"])
+        self.assertNotEqual(initial,head)
+        task=self.cmd("add","Release branch proof","--mode","direct").stdout.strip()
+        self.cmd("set",task,"doing")
+        self.cmd("set",task,"verifying")
+        digest=hashlib.sha256((self.cwd/"storyforge.config.json").read_bytes()).hexdigest()
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0",
+                 "--sha",head,"--base",head,"--config",digest,"--verifier","reviewer")
+        self.cmd("attest",task,success=False)
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0",
+                 "--sha",head,"--base",initial,"--config",digest,"--verifier","reviewer")
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),head)
+
     def test_migrate_legacy_invalidates_unverified_done(self):
         legacy=self.cwd/"legacy.tsv"
         legacy.write_text("1\tdone\tlight\t-\tLegacy task\t-\t-\t-\t-\t-\t-\n")
