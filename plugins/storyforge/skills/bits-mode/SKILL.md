@@ -34,6 +34,16 @@ For any request with more than one task, you act as the senior manager: assign e
 - Time-based `/loop` and proactive `/schedule` are optional Claude Code integrations, not built into StoryForge. Never turn on recurring monitoring without separate authorization.
 - `ship.auto_merge` defaults to `false`. Even when enabled, require actual green named CI checks, independent SHA-bound verification and authorized merge permissions.
 
+## Risk classifier
+
+Before routing and after changing the planned file scope, run:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bits-policy.py" "<user request>" --path "<changed file>" --requested auto
+```
+
+Treat the returned minimum `strict` as mandatory. Unknown potentially sensitive files require full risk review. Do not infer low risk from low file count. Re-run when scope changes.
+
 ## Router
 
 | The task is | Go to |

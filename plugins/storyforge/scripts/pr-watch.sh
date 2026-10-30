@@ -14,7 +14,7 @@ command -v gh >/dev/null || { echo "gh CLI not found"; exit 4; }
 
 JQ='[.statusCheckRollup[]? | (.conclusion // .state // "")] as $c
  | [ .state, (.mergeable | if . == null or . == "" then "UNKNOWN" else . end), (.reviewDecision | if . == null or . == "" then "NONE" else . end), .headRefOid,
-     ([$c[] | select(. == "FAILURE" or . == "TIMED_OUT" or . == "CANCELLED" or . == "ERROR" or . == "ACTION_REQUIRED")] | length | tostring),
+     ([$c[] | select(. != "SUCCESS" and . != "PENDING" and . != "QUEUED" and . != "IN_PROGRESS" and . != "EXPECTED" and . != "")] | length | tostring),
      ([$c[] | select(. == "" or . == "PENDING" or . == "QUEUED" or . == "IN_PROGRESS" or . == "EXPECTED")] | length | tostring), (.statusCheckRollup | length | tostring), ([.statusCheckRollup[]? | (.name // .context // "")] | join(",")) ] | join("|")'
 OUT=$(gh pr view "$PR" "${REPO[@]}" --json state,mergeable,reviewDecision,headRefOid,statusCheckRollup --jq "$JQ" 2>&1) || { echo "gh failed: $OUT"; exit 4; }
 IFS='|' read -r state mergeable review sha failing pending count names <<< "$OUT"

@@ -9,13 +9,15 @@ set -uo pipefail
 CMD="${1:-}"; shift || true
 TOP=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not in a git repo"; exit 1; }
 ROOT="$TOP.worktrees"
+valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]] && [[ "$1" != *".."* ]]; }
 
 case "$CMD" in
   add)
-    id="${1:-}"; [ -n "$id" ] || { echo "usage: $0 add <story-id> [base-branch]"; exit 1; }
+    id="${1:-}"; valid_id "$id" || { echo "invalid worktree id (only letters, numbers, dot, underscore, hyphen)"; exit 1; }
     base="${2:-$(sed -n 's/.*"base_branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TOP/storyforge.config.json" 2>/dev/null | head -1)}"
     base="${base:-main}"
     path="$ROOT/$id"
+    [ ! -L "$path" ] || { echo "refused symlink worktree path"; exit 1; }
     if [ -d "$path" ]; then echo "$path"; exit 0; fi
     mkdir -p "$ROOT"
     if git show-ref --verify --quiet "refs/heads/wt/$id"; then
@@ -26,8 +28,8 @@ case "$CMD" in
     echo "$path" ;;
   list) git worktree list --porcelain | awk '/^worktree /{p=$2} /^branch refs\/heads\/wt\//{sub("refs/heads/","",$2); print $2 "\t" p}' ;;
   remove)
-    id="${1:-}"; [ -n "$id" ] || { echo "usage: $0 remove <story-id>"; exit 1; }
-    path="$ROOT/$id"; [ -d "$path" ] || { echo "no worktree at $path"; exit 1; }
+    id="${1:-}"; valid_id "$id" || { echo "invalid worktree id"; exit 1; }
+    path="$ROOT/$id"; [ ! -L "$path" ] || { echo "refused symlink worktree path"; exit 1; }; [ -d "$path" ] || { echo "no worktree at $path"; exit 1; }
     [ -z "$(git -C "$path" status --porcelain)" ] || { echo "REFUSED: $path has uncommitted changes"; exit 1; }
     git worktree remove "$path" && echo "removed $path (branch wt/$id kept)" ;;
   *) echo "usage: $0 add <id> [base] | list | remove <id>"; exit 1 ;;
