@@ -30,8 +30,21 @@ ALLOW_SCOPE=$([ -f "$SF_STATE/allow-scope-edit" ] && echo 1 || echo "")
 # shellcheck disable=SC2086
 $SF_PY - "$SF_PROJECT" "$FILE" "$TEST_GLOBS" "$PHASE" "$SCOPE_FILE" "$SCOPE_LOCK" "$ALLOW_TEST" "$ALLOW_SCOPE" "$STORY" <<'PY'
 import os,sys,fnmatch,json
+from pathlib import Path
 root,f,tglobs,phase,scope_file,scope_lock,allow_test,allow_scope,story=sys.argv[1:10]
-rel=os.path.relpath(os.path.abspath(f),os.path.abspath(root)).replace(os.sep,"/")
+def deny(msg):
+    print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":msg}})); sys.exit(0)
+base=Path(root).resolve()
+target=Path(f).resolve(strict=False)
+try:
+    rel=target.relative_to(base).as_posix()
+except ValueError:
+    deny("[storyforge] Refused write outside the project workspace")
+protected=(rel.startswith(".claude/") or rel.startswith(".github/workflows/") or
+           rel=="storyforge.config.json" or rel.startswith("plugins/storyforge/hooks/") or
+           rel.startswith("plugins/storyforge/scripts/"))
+if protected and not allow_scope:
+    deny("[storyforge] Protected policy file requires explicit allow-scope-edit approval")
 def m(p,g):
     g=g.strip()
     if not g or g.startswith("#"): return False
@@ -39,7 +52,7 @@ def m(p,g):
     return fnmatch.fnmatch(p,g) or (g.startswith("**/") and fnmatch.fnmatch(p,g[3:]))
 def deny(msg):
     print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":msg}})); sys.exit(0)
-if not rel.startswith(".."):
+if True:
     if not allow_test and any(m(rel,g) for g in tglobs.splitlines()):
         deny(f"[storyforge] Test files are locked during the {phase} phase. Fix the production code instead. If the test itself is wrong, record TEST-DISPUTE in findings.md for the orchestrator.")
     always=[f"docs/stories/{story}/**","docs/memory/**"]

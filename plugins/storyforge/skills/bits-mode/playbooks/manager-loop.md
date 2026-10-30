@@ -8,7 +8,7 @@ Scripts run as `bash "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.sh"` from the project
 
 1. Restate the goal. Run `feature-map.sh find <nouns>` and `impact.sh` on the likely paths so tasks follow the real structure.
 2. Split the request into tasks a single agent can finish and you can verify. For each: `bits-tasks.sh add "<title>" --deps <ids> --mode <light|full|direct>`. A task that needs another's output declares it with `--deps`. Two tasks that would change the same files get a dependency between them, never a race.
-3. Pick the mode per task. When unsure, `full`.
+3. Pick the mode per task. When unsure, `full`. Treat auth, permissions, payments, PII, production migrations, concurrency and policy changes as `full` regardless of file count; reclassify after the diff.
 
 | Mode | Use when | Runs |
 |---|---|---|
@@ -32,7 +32,7 @@ Repeat until `bits-tasks.sh status` exits 0:
    - Story tasks: the `build-story` remember phase updates `FEATURES.md`, `DEPENDENCIES.md`, decisions, lessons, and integrations. In light mode it runs whenever the diff changed a feature's paths or entry points, a dependency edge, or a decision.
    - `direct` tasks: if the diff touches code a feature or dependency row covers, call `memory-keeper` in update mode.
    - Then, on the branch you will merge, run `feature-map.sh check` and `impact.sh --scope <scope.txt>`. Any STALE, NO-PATHS, or UNMAPPED line is a defect: add a fix task that depends on this one.
-5. **Record.** Pass: `bits-tasks.sh set <id> done "<evidence: counts, command>"`. Fail: add a fix task (`--deps` this one) with the failing output in its brief and mark this one `blocked` until it passes. A task that has failed twice is `blocked` with the reason, and you stop to ask the human (`principle-attack-the-premise` first).
+5. **Record.** Pass: `bits-tasks.sh set <id> done "<evidence: counts, command>"`. Fail: keep the *same* task in `doing` for a bounded fix cycle; a fix task must never depend on a blocked parent becoming `done`. Reverify the repaired revision. After two failed cycles mark the original task `blocked` and stop with evidence. Never mark `done` when required checks fail.
 6. **Check progress.** If a whole pass changed no task's status, stop and report. Never spin.
 
 ## 3. Stop only when
