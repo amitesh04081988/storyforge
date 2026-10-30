@@ -1,6 +1,6 @@
 {
   "name": "storyforge",
-  "owner": { "name": "YOUR_NAME" },
+  "owner": { "name": "Amitesh Kumar" },
   "description": "Story-to-shipped autonomous pipeline for Claude Code with persistent project memory.",
   "plugins": [
     { "name": "storyforge", "source": "./plugins/storyforge", "version": "0.10.1",
