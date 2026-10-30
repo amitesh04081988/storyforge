@@ -7,6 +7,7 @@ import re
 STRICT_WORDS=[
     r"\bauth(?:entication|orization)?\b",r"\bpermissions?\b",r"\baccess control\b",
     r"\bpassword\b",r"\btoken\b",r"\bsecret\b",r"\bcredential\b",
+    r"\blogin\b",r"\blogout\b",r"\bsign-?in\b",r"\boauth\b",r"\boidc\b",r"\bjwt\b",r"\bsession management\b",r"\buser roles?\b",
     r"\bpayments?\b",r"\bfinancial\b",r"\bpersonal data\b",r"\bpii\b",
     r"\bmigrat(?:e|ion|ions)\b",r"\bprod(?:uction)? database\b",r"\bdelete data\b",
     r"\bencrypt(?:ion)?\b",r"\bcrypto(?:graphy)?\b",r"\bconcurren(?:cy|t)\b",
@@ -14,7 +15,7 @@ STRICT_WORDS=[
 ]
 STRICT_PATHS=[
     r"(^|/)(auth|iam|permissions|secrets|migrations|payments|security)(/|$)",
-    r"^\.github/workflows/",r"^\.claude/",r"(^|/)storyforge\.config\.json$",
+    r"^\.github/workflows/",r"^\.claude/",r"(^|/)(SECURITY|CODEOWNERS)(\..*)?$",r"(^|/)(login|logout|oauth|jwt)(\..*)?$",r"(^|/)storyforge\.config\.json$",
     r"^plugins/storyforge/(hooks|scripts)/",r"(^|/)(Dockerfile|terraform|helm)/",
 ]
 DOC_PATHS=r"(^|/)(README|CHANGELOG|CONTRIBUTING)(\..*)?$|^docs/|\.md$"

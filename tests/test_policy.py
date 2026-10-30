@@ -10,6 +10,10 @@ mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 class PolicyTests(unittest.TestCase):
     def test_docs_are_fast(self):
         self.assertEqual(mod.classify("Fix typo",["README.md"],"auto")["mode"],"fast")
+    def test_login_redirect_is_strict(self):
+        self.assertEqual(mod.classify("Fix login redirect",["src/login.ts"],"fast")["mode"],"strict")
+    def test_security_policy_doc_is_strict(self):
+        self.assertEqual(mod.classify("Update file",["SECURITY.md"],"fast")["mode"],"strict")
     def test_one_line_auth_is_strict(self):
         self.assertEqual(mod.classify("Fix a one-line login auth check",["src/login.ts"],"fast")["mode"],"strict")
     def test_migrations_are_strict(self):
