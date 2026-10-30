@@ -103,7 +103,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" claim --limit 1
 # After implementation, commit the change and record distinct identities:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" identity 1 builder-agent verifier-agent
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" set 1 verifying
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verify-run.py" 1 --verifier verifier-agent
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" verify 1 --verifier verifier-agent
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" attest 1
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" set 1 done
 ```
@@ -134,7 +134,7 @@ StoryForge has **manager**, **fix** and **PR/CI** loops with bounded stops. Thes
 - Project state is persisted under `.storyforge/` and story documentation; a model's completion statement is not proof.
 - Required tests, lint, typecheck and any affected integration/UI gates must pass; missing required checks are blockers.
 - **The Stop hook is a development aid, not a CI or security boundary.** It may let a chat end after repeated failures; that must not imply success.
-- By default new installations use `ship.auto_merge: false`; users with older configs must change their existing setting explicitly.
+- New installations use `ship.auto_merge: true`, behind two gates: `pr-watch.sh` must say READY (all checks passed, the names in `STORYFORGE_REQUIRED_CHECKS` present) and the PR's head commit must have a recorded verdict. The merge uses `--match-head-commit`. Set it to `false` to merge by hand. Existing configs are not changed.
 - Only run the plugin on trusted repositories or inside a restricted sandbox. A repository's test commands are executable commands.
 - When CI has no configured checks, the PR watcher must not declare the PR ready.
 

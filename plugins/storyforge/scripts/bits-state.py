@@ -11,6 +11,8 @@ import sqlite3
 import subprocess
 import sys
 
+# Gates whose PASS must come from verify-run.py, which really runs the command. review and security are attestations.
+EXECUTED={"test","lint","typecheck","integration_test","e2e_test","diff"}
 REQUIRED={"direct":["diff"],"light":["test","lint","typecheck"],"full":["test","lint","typecheck","review","security"]}
 EDGES={"todo":{"doing","blocked","cancelled"},
        "doing":{"verifying","blocked","interrupted","failed","cancelled"},
@@ -58,11 +60,13 @@ def connect():
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, request TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'ACTIVE');
 CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id),title TEXT NOT NULL,mode TEXT NOT NULL,status TEXT NOT NULL,note TEXT NOT NULL DEFAULT '-',attempts INTEGER NOT NULL DEFAULT 0,required TEXT NOT NULL,builder TEXT,verifier TEXT,verified_sha TEXT,verified_base TEXT,verified_config TEXT,pr TEXT,pr_sha TEXT,pr_verdict TEXT);
 CREATE TABLE IF NOT EXISTS deps(task INTEGER NOT NULL REFERENCES tasks(id), requires INTEGER NOT NULL REFERENCES tasks(id),PRIMARY KEY(task,requires));
-CREATE TABLE IF NOT EXISTS evidence(seq INTEGER PRIMARY KEY AUTOINCREMENT,task INTEGER NOT NULL REFERENCES tasks(id),gate TEXT NOT NULL,verdict TEXT NOT NULL,exit_code INTEGER NOT NULL,sha TEXT NOT NULL,base TEXT NOT NULL,config TEXT NOT NULL,verifier TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS evidence(seq INTEGER PRIMARY KEY AUTOINCREMENT,task INTEGER NOT NULL REFERENCES tasks(id),gate TEXT NOT NULL,verdict TEXT NOT NULL,exit_code INTEGER NOT NULL,sha TEXT NOT NULL,base TEXT NOT NULL,config TEXT NOT NULL,verifier TEXT NOT NULL,created TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'manual');
 CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY,task INTEGER REFERENCES tasks(id),action TEXT NOT NULL,status TEXT NOT NULL,actor TEXT,reason TEXT);
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,task INTEGER,kind TEXT NOT NULL,details TEXT NOT NULL,created TEXT NOT NULL);
 """)
     db.execute("INSERT OR IGNORE INTO runs(id) VALUES('default')")
+    if "source" not in [r[1] for r in db.execute("PRAGMA table_info(evidence)")]:
+        db.execute("ALTER TABLE evidence ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
     return db
 def tx(db):db.execute("BEGIN IMMEDIATE")
 def get(db,id):
@@ -81,12 +85,15 @@ def proof(db,t,sha):
     for gate in json.loads(t["required"]):
         e=db.execute("SELECT * FROM evidence WHERE task=? AND gate=? AND sha=? AND base=? AND config=? ORDER BY seq DESC LIMIT 1",(t["id"],gate,sha,b,h)).fetchone()
         if e is None or e["verdict"]!="PASS" or e["exit_code"]!=0:raise ValueError("missing/failed required gate: "+gate)
+        if gate in EXECUTED and e["source"]!="verify-run":raise ValueError("gate "+gate+" needs a verify-run record, not a manual one")
         if t["mode"]!="direct" and e["verifier"]!=t["verifier"]:raise ValueError("verifier mismatch")
     return b,h
 def run(a):
     db=connect()
     try:
         op=a.command
+        if op=="base":
+            print(base());return
         if op=="init":
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}",a.run_id):raise ValueError("invalid run id")
             with db:db.execute("INSERT OR IGNORE INTO runs(id,request) VALUES(?,?)",(a.run_id,a.request))
@@ -110,8 +117,10 @@ def run(a):
                 raise ValueError("claim limit must be 1..16")
             tx(db)
             avail=[r for r in db.execute("SELECT * FROM tasks WHERE status='todo' AND run_id=? ORDER BY id",(a.run_id,)) if ready(db,r["id"])]
-            for r in avail[:a.limit] if op=="claim" else avail:
+            claimed=0
+            for r in avail:
                 if op=="claim":
+                    if claimed>=a.limit:break
                     # A repaired task is never retried without a bounded attempt budget.
                     try:
                         limit=int(json.loads(Path("storyforge.config.json").read_text()).get("bits_mode",{}).get("max_task_retries",2))+1
@@ -122,7 +131,7 @@ def run(a):
                         ev(db,r["id"],"budget-exhausted",{"attempts":r["attempts"]})
                         continue
                     db.execute("UPDATE tasks SET status='doing',attempts=attempts+1 WHERE id=?",(r["id"],))
-                    ev(db,r["id"],"claimed",{})
+                    ev(db,r["id"],"claimed",{});claimed+=1
                 print(r["id"])
             db.commit();return
         if op=="set":
@@ -155,7 +164,7 @@ def run(a):
             tx(db);t=get(db,a.id)
             if t["status"] not in ("doing","verifying"):raise ValueError("inactive task")
             if t["mode"]!="direct" and a.verifier!=t["verifier"]:raise ValueError("verifier mismatch")
-            db.execute("INSERT INTO evidence(task,gate,verdict,exit_code,sha,base,config,verifier,created) VALUES(?,?,?,?,?,?,?,?,?)",(a.id,a.gate,a.verdict,a.exit_code,a.sha,a.base,a.config,a.verifier,utc()))
+            db.execute("INSERT INTO evidence(task,gate,verdict,exit_code,sha,base,config,verifier,created,source) VALUES(?,?,?,?,?,?,?,?,?,?)",(a.id,a.gate,a.verdict,a.exit_code,a.sha,a.base,a.config,a.verifier,utc(),a.source))
             ev(db,a.id,"evidence",{"gate":a.gate,"verdict":a.verdict});db.commit();return
         if op=="attest":
             tx(db);t=get(db,a.id)
@@ -198,7 +207,8 @@ def run(a):
             parsed=[]
             for line in lines:
                 fields=line.split("\t")
-                if len(fields)<11:raise ValueError("malformed legacy TSV row")
+                if len(fields)<6:raise ValueError("malformed legacy TSV row")
+                fields=fields+["-"]*(11-len(fields))
                 task_id=int(fields[0]);mode=fields[2];status=fields[1]
                 if task_id<=0 or mode not in REQUIRED:raise ValueError("invalid legacy row")
                 target={"todo":"todo","done":"blocked","doing":"interrupted","verifying":"interrupted","blocked":"blocked"}.get(status,"blocked")
@@ -253,11 +263,11 @@ def parse():
     x=sp.add_parser("claim");x.add_argument("--limit",type=int,default=1)
     x=sp.add_parser("set");x.add_argument("id",type=int);x.add_argument("status");x.add_argument("note",nargs="?",default="-")
     x=sp.add_parser("identity");x.add_argument("id",type=int);x.add_argument("builder");x.add_argument("verifier")
-    x=sp.add_parser("evidence");x.add_argument("id",type=int);x.add_argument("gate");x.add_argument("verdict");x.add_argument("--exit-code",type=int,required=True);x.add_argument("--sha",required=True);x.add_argument("--base",required=True);x.add_argument("--config",required=True);x.add_argument("--verifier",required=True)
+    x=sp.add_parser("evidence");x.add_argument("id",type=int);x.add_argument("gate");x.add_argument("verdict");x.add_argument("--exit-code",type=int,required=True);x.add_argument("--sha",required=True);x.add_argument("--base",required=True);x.add_argument("--config",required=True);x.add_argument("--verifier",required=True);x.add_argument("--source",choices=["manual","verify-run"],default="manual")
     x=sp.add_parser("attest");x.add_argument("id",type=int)
     x=sp.add_parser("pr");x.add_argument("id",type=int);x.add_argument("number");x.add_argument("sha");x.add_argument("verdict");x.add_argument("builder");x.add_argument("verifier")
     x=sp.add_parser("mergeable");x.add_argument("id",type=int);x.add_argument("sha")
-    sp.add_parser("show");sp.add_parser("status");sp.add_parser("recover");sp.add_parser("cancel")
+    sp.add_parser("base");sp.add_parser("show");sp.add_parser("status");sp.add_parser("recover");sp.add_parser("cancel")
     x=sp.add_parser("migrate-legacy");x.add_argument("path",nargs="?",default=".storyforge/tasks.tsv")
     return p.parse_args()
 if __name__=="__main__":

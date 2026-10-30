@@ -70,7 +70,7 @@ $DOUT"; fi
   fi
 fi
 
-if [ $FAILED -eq 0 ]; then echo 0 > "$SF_STATE/stop-blocks"; exit 0; fi
+if [ $FAILED -eq 0 ]; then echo 0 > "$SF_STATE/stop-blocks"; rm -f "$SF_STATE/gate-blocked"; exit 0; fi
 
 MAX=$(sf_cfg max_stop_blocks 3)
 echo $N > "$SF_STATE/stop-blocks"

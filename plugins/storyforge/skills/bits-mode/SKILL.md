@@ -32,14 +32,14 @@ For any request with more than one task, you act as the senior manager: assign e
 - Follow bounded manager, fix and PR loops: declare success predicates, attempt budgets, no-progress behavior and non-success exits (BLOCKED, FAILED, INTERRUPTED, BUDGET_EXHAUSTED).
 - Never create a fix task depending on a blocked task being `done`; repair the original task and reverify it.
 - Time-based `/loop` and proactive `/schedule` are optional Claude Code integrations, not built into StoryForge. Never turn on recurring monitoring without separate authorization.
-- `ship.auto_merge` defaults to `false`. Even when enabled, require actual green named CI checks, independent SHA-bound verification and authorized merge permissions.
+- `ship.auto_merge` defaults to `true` for new projects. Merge only when `pr-watch.sh` says READY (named CI checks present and passing), the task has independent SHA-bound verification, and you use `--match-head-commit`. Set it to `false` to merge by hand.
 
 ## Risk classifier
 
 Before routing and after changing the planned file scope, run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bits-policy.py" "<user request>" --path "<changed file>" --requested auto
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/bits-tasks.sh" policy "<user request>" --path "<changed file>" --requested auto
 ```
 
 Treat the returned minimum `strict` as mandatory. Unknown potentially sensitive files require full risk review. Do not infer low risk from low file count. Re-run when scope changes.

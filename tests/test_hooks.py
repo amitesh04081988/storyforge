@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 import unittest
 
+from helpers import BASH
+
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / "plugins/storyforge/hooks"
 
@@ -26,7 +28,7 @@ class GateSafetyTests(unittest.TestCase):
     def run_hook(self, script, data=None):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
         return subprocess.run(
-            ["bash", str(HOOKS / script)],
+            [BASH, str(HOOKS / script)],
             cwd=self.root, env=env, input=json.dumps(data or {}),
             text=True, capture_output=True
         )

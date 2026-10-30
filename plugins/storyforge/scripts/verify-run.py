@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run mandatory local checks and store their real exit codes, never model assertions.
 
-Usage: python3 scripts/verify-run.py TASK_ID --verifier reviewer-02
+Usage: bash scripts/bits-tasks.sh verify TASK_ID --verifier reviewer-02
 The task must already be in 'verifying' with distinct builder/verifier identities.
 Commands come from trusted storyforge.config.json. Do not use on untrusted code
 outside a sandbox. Security/review approvals are separate gates, not faked here.
@@ -13,7 +13,17 @@ from pathlib import Path
 import subprocess
 import sys
 import os
+import shutil
 
+def find_bash():
+    """Git Bash on Windows: a bare "bash" can be the WSL launcher in System32, which fails when no distro is installed."""
+    if os.environ.get("STORYFORGE_BASH"):return os.environ["STORYFORGE_BASH"]
+    found=shutil.which("bash")
+    if os.name=="nt" and (not found or "system32" in found.lower()):
+        for c in (r"C:\Program Files\Git\bin\bash.exe",r"C:\Program Files (x86)\Git\bin\bash.exe"):
+            if Path(c).exists():return c
+    return found or "bash"
+BASH=find_bash()
 HERE=Path(__file__).resolve().parent
 STATE=HERE/"bits-state.py"
 p=argparse.ArgumentParser()
@@ -31,8 +41,9 @@ cfg=json.loads(cfg_path.read_text())
 sha=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 dirty=subprocess.check_output(["git","status","--porcelain"],text=True).strip()
 if dirty:raise SystemExit("BLOCKED: commit changes before verification")
-base=subprocess.run(["git","rev-parse","refs/remotes/origin/main"],capture_output=True,text=True)
-base_sha=base.stdout.strip() if base.returncode==0 else sha
+base=subprocess.run([sys.executable,str(STATE),"base"],capture_output=True,text=True)
+if base.returncode:raise SystemExit("BLOCKED: "+base.stderr.strip())
+base_sha=base.stdout.strip()
 config_sha=hashlib.sha256(cfg_path.read_bytes()).hexdigest()
 logs=Path(".storyforge/logs");logs.mkdir(parents=True,exist_ok=True)
 all_pass=True
@@ -46,7 +57,7 @@ for gate in args.gates.split(","):
         status="BLOCKED";rc=3;output="required command not configured"
     else:
         try:
-            result=subprocess.run(["bash","-c",cmd],capture_output=True,text=True,timeout=args.timeout)
+            result=subprocess.run([BASH,"-c",cmd],capture_output=True,text=True,timeout=args.timeout)
             rc=result.returncode;status="PASS" if rc==0 else "FAIL"
             output=(result.stdout+"\n"+result.stderr)[-24000:]
         except subprocess.TimeoutExpired:
@@ -55,7 +66,7 @@ for gate in args.gates.split(","):
     log.write_text(output)
     cli=[sys.executable,str(STATE),"evidence",str(args.task_id),gate,status,
          "--exit-code",str(rc),"--sha",sha,"--base",base_sha,
-         "--config",config_sha,"--verifier",args.verifier]
+         "--config",config_sha,"--verifier",args.verifier,"--source","verify-run"]
     stored=subprocess.run(cli,capture_output=True,text=True)
     if stored.returncode:
         print("BLOCKED: could not save evidence for",gate,stored.stderr.strip(),file=sys.stderr)

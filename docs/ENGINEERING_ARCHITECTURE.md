@@ -45,3 +45,16 @@ Task state is transactional and requires configured gate evidence bound to the c
 - `plugins/storyforge/scripts/pr-watch.sh`: conservative CI decision
 - `plugins/storyforge/hooks/stop-gate.sh`: best-effort session gate
 - `tests/`: regression fixtures
+
+## What the evidence proves, and what it does not
+
+A task reaches `done` only if every required gate has a `PASS` record for the exact commit, base commit and config hash, from a verifier who differs from the builder.
+
+- **Executed gates** (`test`, `lint`, `typecheck`, `integration_test`, `e2e_test`, `diff`) must come from `verify-run.py`, which runs the configured command and stores its real exit code. `bits-state.py evidence` tags every record with its `source`; a `manual` record never satisfies an executed gate.
+- **Attestation gates** (`review`, `security`) are statements by the named verifier. The ledger cannot check them. They are as trustworthy as whoever recorded them.
+- **This is not tamper-proof.** The ledger is a local SQLite file, and anything that can run a command in the repository can pass `--source verify-run` or edit the file. The design catches mistakes and skipped steps, not a deliberately hostile agent. Use a sandbox and reviewed branch protection for that.
+- **Names are not authenticated.** `builder` and `verifier` are labels. They prove the manager separated the roles, not who actually ran them.
+
+## Pull request readiness
+
+`pr-watch.sh` says READY only when the PR is open, has at least one check, every check passed (`SKIPPED` and `NEUTRAL` count as passing), every name in `STORYFORGE_REQUIRED_CHECKS` exists, and nothing is conflicting or awaiting review. List required names separated by `;` or newlines; names may contain commas. With no policy it never says READY, because it cannot know which checks must exist. A real failure is reported as ACT whether or not a policy is set.

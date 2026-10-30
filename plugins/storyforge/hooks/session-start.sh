@@ -31,6 +31,10 @@ fi
 if [ -s "$SF_PROJECT/.storyforge/tasks.tsv" ] && [ ! -f "$SF_PROJECT/.storyforge/tasks.sqlite" ]; then
   echo "StoryForge WARNING: legacy tasks.tsv detected; back up and migrate with bits-tasks.sh migrate-legacy before resuming."
 fi
+if [ -f "$SF_STATE/gate-blocked" ]; then
+  echo "StoryForge WARNING: the Stop gate gave up while checks were still failing, so the task is not done:"
+  head -n 12 "$SF_STATE/gate-blocked"
+fi
 TASKS="$SF_PROJECT/.storyforge/tasks.sqlite"
 if [ -f "$TASKS" ] && ! STORYFORGE_DB="$TASKS" bash "$(dirname "$0")/../scripts/bits-tasks.sh" status >/dev/null 2>&1; then
   echo

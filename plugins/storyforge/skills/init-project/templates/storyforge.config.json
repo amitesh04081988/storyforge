@@ -47,7 +47,7 @@
   },
   "ship": {
     "mode": "commit",
-    "auto_merge": false
+    "auto_merge": true
   },
   "guard": {
     "ignore": []

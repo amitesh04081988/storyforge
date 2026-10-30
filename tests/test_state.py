@@ -63,7 +63,7 @@ class StateTests(unittest.TestCase):
         self.cmd("set",task,"verifying")
         sha,base,cfg=self.context()
         for gate in ("test","lint","typecheck"):
-            self.cmd("evidence",task,gate,"PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier")
+            self.cmd("evidence",task,gate,"PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier","--source","verify-run")
         self.assertEqual(self.cmd("attest",task).stdout.strip(),sha)
         self.cmd("set",task,"done")
         self.assertIn("GOAL_VERIFIED",self.cmd("status").stdout)
@@ -85,7 +85,7 @@ class StateTests(unittest.TestCase):
         self.cmd("set",task,"doing")
         self.cmd("set",task,"verifying")
         sha,base,cfg=self.context()
-        self.cmd("evidence",task,"diff","PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","reviewer")
+        self.cmd("evidence",task,"diff","PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","reviewer","--source","verify-run")
         self.cmd("attest",task)
         (self.cwd/"storyforge.config.json").write_text(json.dumps({"test":"false"}))
         self.cmd("set",task,"done",success=False)
@@ -134,10 +134,10 @@ class StateTests(unittest.TestCase):
         self.cmd("set",task,"verifying")
         digest=hashlib.sha256((self.cwd/"storyforge.config.json").read_bytes()).hexdigest()
         self.cmd("evidence",task,"diff","PASS","--exit-code","0",
-                 "--sha",head,"--base",head,"--config",digest,"--verifier","reviewer")
+                 "--sha",head,"--base",head,"--config",digest,"--verifier","reviewer","--source","verify-run")
         self.cmd("attest",task,success=False)
         self.cmd("evidence",task,"diff","PASS","--exit-code","0",
-                 "--sha",head,"--base",initial,"--config",digest,"--verifier","reviewer")
+                 "--sha",head,"--base",initial,"--config",digest,"--verifier","reviewer","--source","verify-run")
         self.assertEqual(self.cmd("attest",task).stdout.strip(),head)
 
     def test_migrate_legacy_invalidates_unverified_done(self):
@@ -147,5 +147,43 @@ class StateTests(unittest.TestCase):
         self.assertIn("blocked",self.cmd("show").stdout)
         self.cmd("status",success=False)
         self.cmd("migrate-legacy",str(legacy),success=False)
+
+    def test_manual_evidence_cannot_satisfy_executed_gates(self):
+        task=self.cmd("add","Forged","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        sha,_,cfg=self.context()
+        base=self.cmd("base").stdout.strip()
+        for gate in ("test","lint","typecheck"):
+            self.cmd("evidence",task,gate,"PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier")
+        r=self.cmd("attest",task,success=False)
+        self.assertIn("verify-run",r.stderr)
+    def test_review_gate_is_an_attestation_not_an_execution(self):
+        task=self.cmd("add","Reviewed","--mode","full","--required","review").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        sha,_,cfg=self.context();base=self.cmd("base").stdout.strip()
+        self.cmd("evidence",task,"review","PASS","--exit-code","0","--sha",sha,"--base",base,"--config",cfg,"--verifier","verifier")
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),sha)
+    def test_verifier_and_ledger_agree_on_base_branch_without_origin(self):
+        self.exec(["git","branch","-M","main"])
+        self.exec(["git","checkout","-qb","feature"])
+        (self.cwd/"work.txt").write_text("work");self.exec(["git","add","."]);self.exec(["git","commit","-qm","work"])
+        task=self.cmd("add","Feature","--mode","light").stdout.strip()
+        self.cmd("set",task,"doing");self.cmd("identity",task,"builder","verifier");self.cmd("set",task,"verifying")
+        r=subprocess.run([sys.executable,str(VERIFY),task,"--verifier","verifier"],cwd=self.cwd,env=self.env,capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stdout+"\n"+r.stderr)
+        self.assertEqual(self.cmd("attest",task).stdout.strip(),self.exec(["git","rev-parse","HEAD"]))
+        self.cmd("set",task,"done")
+    def test_legacy_ledgers_from_earlier_versions_import(self):
+        for columns in (6,9,11):
+            legacy=self.cwd/("legacy%d.tsv"%columns)
+            row=["1","done","light","-","Old task","ok","41","abc","unit-test-verified","sonnet","opus"][:columns]
+            legacy.write_text("\t".join(row)+"\n")
+            self.env["STORYFORGE_DB"]=str(self.cwd/("legacy%d.sqlite"%columns))
+            self.cmd("migrate-legacy",str(legacy))
+            self.assertIn("Old task",self.cmd("show").stdout)
+    def test_claim_limit_counts_claimed_tasks_not_skipped_ones(self):
+        for title in ("A","B","C"):self.cmd("add",title,"--mode","direct")
+        db=sqlite3.connect(self.env["STORYFORGE_DB"]);db.execute("UPDATE tasks SET attempts=3 WHERE id=1");db.commit();db.close()
+        self.assertEqual(self.cmd("claim","--limit","1").stdout.strip(),"2")
 
 if __name__=="__main__":unittest.main()

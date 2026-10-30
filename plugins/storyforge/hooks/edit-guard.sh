@@ -40,9 +40,10 @@ try:
     rel=target.relative_to(base).as_posix()
 except ValueError:
     deny("[storyforge] Refused write outside the project workspace")
-protected=(rel.startswith(".claude/") or rel.startswith(".github/workflows/") or
-           rel=="storyforge.config.json" or rel.startswith("plugins/storyforge/hooks/") or
-           rel.startswith("plugins/storyforge/scripts/"))
+rl=rel.lower()  # case-insensitive file systems (Windows, macOS) would otherwise let ".Claude/" slip past
+protected=(rl.startswith(".claude/") or rl.startswith(".github/workflows/") or
+           rl=="storyforge.config.json" or rl.startswith("plugins/storyforge/hooks/") or
+           rl.startswith("plugins/storyforge/scripts/"))
 if protected and not allow_scope:
     deny("[storyforge] Protected policy file requires explicit allow-scope-edit approval")
 def m(p,g):
@@ -50,8 +51,6 @@ def m(p,g):
     if not g or g.startswith("#"): return False
     if g.endswith("/"): g+="**"
     return fnmatch.fnmatch(p,g) or (g.startswith("**/") and fnmatch.fnmatch(p,g[3:]))
-def deny(msg):
-    print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":msg}})); sys.exit(0)
 if True:
     if not allow_test and any(m(rel,g) for g in tglobs.splitlines()):
         deny(f"[storyforge] Test files are locked during the {phase} phase. Fix the production code instead. If the test itself is wrong, record TEST-DISPUTE in findings.md for the orchestrator.")
