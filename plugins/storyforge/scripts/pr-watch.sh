@@ -26,7 +26,7 @@ if [ -z "${STORYFORGE_REQUIRED_CHECKS:-}" ]; then
 else
   IFS=',' read -ra required <<< "$STORYFORGE_REQUIRED_CHECKS"
   for needed in "${required[@]}"; do
-    case ",$names," in *,"$needed",*) ;; *) ci=missing-required;; esac
+    case ",$names," in *,"$needed",*) ;; *) [ "$ci" = not-configured ] || ci=missing-required;; esac
   done
 fi
 verdict=READY; code=0
