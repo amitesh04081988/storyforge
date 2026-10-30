@@ -95,6 +95,15 @@ def run(a):
             avail=[r for r in db.execute("SELECT * FROM tasks WHERE status='todo' AND run_id=? ORDER BY id",(a.run_id,)) if ready(db,r["id"])]
             for r in avail[:a.limit] if op=="claim" else avail:
                 if op=="claim":
+                    # A repaired task is never retried without a bounded attempt budget.
+                    try:
+                        limit=int(json.loads(Path("storyforge.config.json").read_text()).get("bits_mode",{}).get("max_task_retries",2))+1
+                    except (ValueError,FileNotFoundError,TypeError):
+                        limit=3
+                    if r["attempts"]>=limit:
+                        db.execute("UPDATE tasks SET status='blocked',note='attempt budget exhausted' WHERE id=?",(r["id"],))
+                        ev(db,r["id"],"budget-exhausted",{"attempts":r["attempts"]})
+                        continue
                     db.execute("UPDATE tasks SET status='doing',attempts=attempts+1 WHERE id=?",(r["id"],))
                     ev(db,r["id"],"claimed",{})
                 print(r["id"])
@@ -103,6 +112,11 @@ def run(a):
             tx(db);t=get(db,a.id)
             if a.status not in EDGES[t["status"]]:raise ValueError("invalid state transition")
             if a.status=="doing" and t["status"]=="todo" and not ready(db,a.id):raise ValueError("unsatisfied dependencies")
+            if a.status=="doing":
+                try:limit=int(json.loads(Path("storyforge.config.json").read_text()).get("bits_mode",{}).get("max_task_retries",2))+1
+                except (ValueError,FileNotFoundError,TypeError):limit=3
+                if t["attempts"]>=limit:raise ValueError("BUDGET_EXHAUSTED: task attempt cap")
+                db.execute("UPDATE tasks SET attempts=attempts+1 WHERE id=?",(a.id,))
             if a.status=="done":
                 s=current()
                 if t["verified_sha"]!=s or t["verified_base"]!=base() or t["verified_config"]!=conf():raise ValueError("stale attestation")
@@ -153,7 +167,43 @@ def run(a):
             counts={r["status"]:r["n"] for r in rows};total=sum(counts.values())
             print("tasks: %d  todo: %d  doing: %d  verifying: %d  blocked: %d  done: %d"%(total,counts.get("todo",0),counts.get("doing",0),counts.get("verifying",0),counts.get("blocked",0),counts.get("done",0)))
             if not total or counts.get("done",0)!=total:raise ValueError("GOAL_NOT_VERIFIED")
+            for t in db.execute("SELECT * FROM tasks WHERE run_id=? AND status='done'",(a.run_id,)):
+                if t["verified_base"]!=base() or t["verified_config"]!=conf():
+                    raise ValueError("GOAL_NOT_VERIFIED: base/config changed")
+                proof(db,t,t["verified_sha"])
             print("GOAL_VERIFIED");return
+        if op=="migrate-legacy":
+            legacy=Path(a.path)
+            if not legacy.is_file():raise ValueError("legacy TSV not found")
+            if db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]:
+                raise ValueError("destination database is not empty; refusing import")
+            lines=[v for v in legacy.read_text().splitlines() if v.strip()]
+            parsed=[]
+            for line in lines:
+                fields=line.split("\t")
+                if len(fields)<11:raise ValueError("malformed legacy TSV row")
+                task_id=int(fields[0]);mode=fields[2];status=fields[1]
+                if task_id<=0 or mode not in REQUIRED:raise ValueError("invalid legacy row")
+                target={"todo":"todo","done":"blocked","doing":"interrupted","verifying":"interrupted","blocked":"blocked"}.get(status,"blocked")
+                parsed.append((task_id,fields,target))
+            ids={id for id,_,_ in parsed}
+            if len(ids)!=len(parsed):raise ValueError("duplicate legacy task IDs")
+            edges=[]
+            for id,fields,_ in parsed:
+                if fields[3] not in ("-",""):
+                    for d in fields[3].split(","):
+                        dep=int(d)
+                        if dep not in ids or dep==id:raise ValueError("legacy dependencies missing/self")
+                        edges.append((id,dep))
+            tx(db)
+            for id,fields,target in parsed:
+                db.execute("INSERT INTO tasks(id,run_id,title,mode,status,note,required) VALUES(?,'default',?,?,?,?,?)",
+                           (id,fields[4],fields[2],target,"Imported from legacy: reverify before DONE",json.dumps(REQUIRED[fields[2]])))
+                ev(db,id,"legacy-import",{"previous_status":fields[1],"status":target})
+            for edge in edges:db.execute("INSERT INTO deps VALUES(?,?)",edge)
+            db.commit()
+            print("imported",len(parsed),"tasks; previous DONE states require reverification")
+            return
         if op in ("recover","cancel"):
             tx(db)
             statuses=("doing","verifying") if op=="recover" else ("todo","doing","verifying","blocked","failed","interrupted")
@@ -180,6 +230,7 @@ def parse():
     x=sp.add_parser("pr");x.add_argument("id",type=int);x.add_argument("number");x.add_argument("sha");x.add_argument("verdict");x.add_argument("builder");x.add_argument("verifier")
     x=sp.add_parser("mergeable");x.add_argument("id",type=int);x.add_argument("sha")
     sp.add_parser("show");sp.add_parser("status");sp.add_parser("recover");sp.add_parser("cancel")
+    x=sp.add_parser("migrate-legacy");x.add_argument("path",nargs="?",default=".storyforge/tasks.tsv")
     return p.parse_args()
 if __name__=="__main__":
     try:run(parse())
