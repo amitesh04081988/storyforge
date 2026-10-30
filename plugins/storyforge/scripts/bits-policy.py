@@ -24,7 +24,9 @@ def classify(request,paths,requested):
     for pat in STRICT_WORDS:
         if re.search(pat,hay):flags.append("request:"+pat)
     for path in paths:
-        normalized=path.replace("\\","/").lstrip("./")
+        normalized=path.replace("\\","/")
+        while normalized.startswith("./"):
+            normalized=normalized[2:]
         if any(re.search(pattern,normalized,re.I) for pattern in STRICT_PATHS):
             flags.append("sensitive path:"+normalized)
     if flags:
