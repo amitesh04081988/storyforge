@@ -97,6 +97,18 @@ class StateTests(unittest.TestCase):
         self.cmd("attest",task);self.cmd("set",task,"done")
 
 
+    def test_legacy_dependency_cycle_refused(self):
+        legacy=self.cwd/"legacy-cycle.tsv"
+        legacy.write_text(
+            "1\ttodo\tlight\t2\tFirst\t-\t-\t-\t-\t-\t-\n"
+            "2\ttodo\tlight\t1\tSecond\t-\t-\t-\t-\t-\t-\n"
+        )
+        self.cmd("migrate-legacy",str(legacy),success=False)
+        self.assertNotIn("First",self.cmd("show").stdout)
+
+    def test_invalid_claim_limit_rejected(self):
+        self.cmd("claim","--limit","-1",success=False)
+
     def test_repair_budget_stops_repeated_attempts(self):
         task=self.cmd("add","Repeated","--mode","light").stdout.strip()
         self.cmd("set",task,"doing")

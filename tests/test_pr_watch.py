@@ -40,6 +40,13 @@ class WatchTests(unittest.TestCase):
     def test_unconfigured_policy_not_ready(self):
         p=self.run_watch("OPEN|MERGEABLE|APPROVED|abcdef|0|0|1|regression",required="")
         self.assertNotEqual(p.returncode,0)
+    def test_worktree_rejects_symlink_root(self):
+        subprocess.run(["git","init","-q",str(self.path)],check=True)
+        actual=self.path/"elsewhere";actual.mkdir()
+        (Path(str(self.path)+".worktrees")).symlink_to(actual,target_is_directory=True)
+        p=subprocess.run(["bash",str(WORKTREE),"add","test-task"],cwd=self.path,capture_output=True,text=True)
+        self.assertNotEqual(p.returncode,0)
+
     def test_worktree_rejects_path_traversal(self):
         subprocess.run(["git","init","-q",str(self.path)],check=True)
         p=subprocess.run(["bash",str(WORKTREE),"add","../escape"],cwd=self.path,capture_output=True,text=True)

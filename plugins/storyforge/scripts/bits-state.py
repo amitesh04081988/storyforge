@@ -91,6 +91,8 @@ def run(a):
             ev(db,cur.lastrowid,"created",{"deps":dep})
             db.commit();print(cur.lastrowid);return
         if op in ("next","claim"):
+            if op=="claim" and (a.limit<1 or a.limit>16):
+                raise ValueError("claim limit must be 1..16")
             tx(db)
             avail=[r for r in db.execute("SELECT * FROM tasks WHERE status='todo' AND run_id=? ORDER BY id",(a.run_id,)) if ready(db,r["id"])]
             for r in avail[:a.limit] if op=="claim" else avail:
@@ -195,6 +197,17 @@ def run(a):
                         dep=int(d)
                         if dep not in ids or dep==id:raise ValueError("legacy dependencies missing/self")
                         edges.append((id,dep))
+            # Reject cycles in imported dependencies before writing.
+            graph={i:[] for i in ids}
+            for child,parent in edges:graph[child].append(parent)
+            color={}
+            def visit(v):
+                if color.get(v)==1:raise ValueError("legacy dependency cycle")
+                if color.get(v)==2:return
+                color[v]=1
+                for d in graph[v]:visit(d)
+                color[v]=2
+            for id in ids:visit(id)
             tx(db)
             for id,fields,target in parsed:
                 db.execute("INSERT INTO tasks(id,run_id,title,mode,status,note,required) VALUES(?,'default',?,?,?,?,?)",

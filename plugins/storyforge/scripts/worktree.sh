@@ -9,6 +9,7 @@ set -uo pipefail
 CMD="${1:-}"; shift || true
 TOP=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not in a git repo"; exit 1; }
 ROOT="$TOP.worktrees"
+[ ! -L "$ROOT" ] || { echo "refused symlink worktree root"; exit 1; }
 valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]] && [[ "$1" != *".."* ]]; }
 
 case "$CMD" in
