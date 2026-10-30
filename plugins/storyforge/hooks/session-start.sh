@@ -28,10 +28,10 @@ if [ -n "$STORY" ] && [ -n "$PHASE" ] && [ "$PHASE" != done ]; then
   echo "## In-progress story: $STORY (phase: $PHASE). Resume with /storyforge:build-story --resume $STORY"
   [ -f "$SF_PROJECT/docs/stories/$STORY/status.md" ] && grep -E '^\s*-\s*\[|fix_cycles|^## Blocked' "$SF_PROJECT/docs/stories/$STORY/status.md" | head -20
 fi
-TASKS="$SF_PROJECT/.storyforge/tasks.tsv"
-if [ -s "$TASKS" ] && ! STORYFORGE_TASKS="$TASKS" bash "$(dirname "$0")/../scripts/bits-tasks.sh" status >/dev/null 2>&1; then
+TASKS="$SF_PROJECT/.storyforge/tasks.sqlite"
+if [ -f "$TASKS" ] && ! STORYFORGE_DB="$TASKS" bash "$(dirname "$0")/../scripts/bits-tasks.sh" status >/dev/null 2>&1; then
   echo
   echo "## Unfinished bits-mode tasks. Continue with /storyforge:bits-mode resume"
-  STORYFORGE_TASKS="$TASKS" bash "$(dirname "$0")/../scripts/bits-tasks.sh" status
+  STORYFORGE_DB="$TASKS" bash "$(dirname "$0")/../scripts/bits-tasks.sh" status
 fi
 exit 0
