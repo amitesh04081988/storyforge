@@ -10,6 +10,27 @@ HERE="$(dirname "$0")"
 . "$HERE/lib.sh"
 cat >/dev/null  # consume stdin
 PHASE=$(sf_phase)
+
+# Manager loop: unfinished ledger tasks mean the run is not over. Stopping to hand open issues
+# back to the human is the failure this gate exists to stop. `echo blocked > .storyforge/phase`
+# is the sanctioned exit when a task needs a product decision, a secret, or an irreversible action.
+LEDGER="$SF_PROJECT/.storyforge/tasks.sqlite"
+if [ -f "$LEDGER" ] && [ "$PHASE" != blocked ] && ! sf_state_tracked; then
+  if ! LOUT=$(STORYFORGE_DB="$LEDGER" bash "$HERE/../scripts/bits-tasks.sh" status 2>&1); then
+    mkdir -p "$SF_STATE"
+    LN=$(( $(cat "$SF_STATE/ledger-blocks" 2>/dev/null || echo 0) + 1 ))
+    echo $LN > "$SF_STATE/ledger-blocks"
+    if [ "$LN" -le "$(sf_cfg max_stop_blocks 3)" ]; then
+      LMSG="[storyforge] Task ledger has unfinished tasks. Follow playbooks/manager-loop.md: fix, measure or verify each one and record it, or mark the task blocked and run: echo blocked > .storyforge/phase. Do not hand open issues back as a question. $(printf '%s' "$LOUT" | head -n 12)"
+      sf_find_python
+      # shellcheck disable=SC2086
+      [ -n "$SF_PY" ] && { $SF_PY -c 'import json,sys;print(json.dumps({"decision":"block","reason":sys.argv[1]}))' "$LMSG"; exit 0; }
+    fi
+  else
+    rm -f "$SF_STATE/ledger-blocks"
+  fi
+fi
+
 case "$PHASE" in develop|fix|integrate|ui|verify) ;; *) exit 0;; esac
 [ -f "$SF_CONFIG" ] || exit 0
 mkdir -p "$SF_STATE"

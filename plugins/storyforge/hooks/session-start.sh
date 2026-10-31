@@ -13,6 +13,7 @@ fi
 if [ ! -f "$SF_CONFIG" ]; then
   echo "StoryForge: this repo is not set up yet. Run /storyforge:init-project (it also scaffolds brand-new projects)."
 fi
+echo "StoryForge routing: a request with several tasks, or one that touches auth, permissions, migrations or security, goes through /storyforge:bits-mode. Read playbooks/manager-loop.md and open the task ledger (bits-tasks.sh add) before dispatching any agent. Run bits-tasks.sh policy on the request and the diff; strict means the full pipeline with an independent reviewer, break-it, and a verify attestation. Open issues become ledger tasks, not questions for the user. Attach design assets (mockups, screenshots) to agent briefs."
 if [ -f "$IDX" ]; then
   echo "## StoryForge project memory (index only; open files in docs/memory/ when relevant)"
   head -n 80 "$IDX"

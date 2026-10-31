@@ -45,6 +45,17 @@ class GateSafetyTests(unittest.TestCase):
         self.assertTrue((self.root / ".storyforge/gate-blocked").exists())
         self.assertNotIn('"decision":"pass"', result.stdout)
 
+    def test_unfinished_ledger_blocks_stop_until_phase_blocked(self):
+        (self.root / ".storyforge/phase").write_text("done")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        tasks = HOOKS.parent / "scripts/bits-tasks.sh"
+        subprocess.run([BASH, str(tasks), "add", "open item", "--mode", "direct"],
+                       cwd=self.root, env=env, check=True, capture_output=True)
+        result = self.run_hook("stop-gate.sh")
+        self.assertEqual(json.loads(result.stdout)["decision"], "block")
+        (self.root / ".storyforge/phase").write_text("blocked")
+        self.assertEqual(self.run_hook("stop-gate.sh").stdout.strip(), "")
+
     def test_outside_project_write_is_denied(self):
         result = self.run_hook("edit-guard.sh", {
             "tool_input": {"file_path": str(self.root.parent / "escape.py")}
